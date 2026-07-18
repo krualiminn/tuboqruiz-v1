@@ -4,34 +4,20 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TOBO Quiz - สื่อการสอนยุคใหม่</title>
-    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- FontAwesome Icons (เสถียรกับ React 100%) -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- React & ReactDOM -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-    <!-- Babel -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;600;800;900&display=swap');
         body { font-family: 'Kanit', sans-serif; overflow-x: hidden; background-color: #f8fafc; }
-        
         .animate-fade-in-up { animation: fadeInUp 0.5s ease-out forwards; }
         @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-        
         .animate-float { animation: float 6s ease-in-out infinite; }
         .animate-float-delayed { animation: float 6s ease-in-out infinite; animation-delay: 3s; }
-        @keyframes float { 
-            0% { transform: translateY(0px) rotate(0deg); } 
-            50% { transform: translateY(-20px) rotate(10deg); } 
-            100% { transform: translateY(0px) rotate(0deg); } 
-        }
-
-        .glass-panel { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.8); }
-        
-        /* ปุ่มสไตล์ EdTech 3D */
+        @keyframes float { 0% { transform: translateY(0px) rotate(0deg); } 50% { transform: translateY(-20px) rotate(10deg); } 100% { transform: translateY(0px) rotate(0deg); } }
         .btn-3d { box-shadow: 0 8px 0 rgba(0,0,0,0.2); transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1); }
         .btn-3d:active { box-shadow: 0 0px 0 rgba(0,0,0,0.2); transform: translateY(8px); }
         .btn-3d-emerald { background-color: #10b981; box-shadow: 0 8px 0 #047857; color: white; }
@@ -44,879 +30,759 @@
 </head>
 <body class="text-slate-800 antialiased selection:bg-indigo-300">
     <div id="root"></div>
-
-    <!-- โหลด Firebase Modules -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, doc, setDoc, getDoc, updateDoc, onSnapshot, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        window.FirebaseApi = {
-            initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged,
-            getFirestore, collection, doc, setDoc, getDoc, updateDoc, onSnapshot, deleteDoc
-        };
-        window.dispatchEvent(new Event('firebase-ready'));
-    </script>
-
     <script type="text/babel">
-        const { useState, useEffect, useRef, useCallback } = React;
+        const { useState, useEffect, useRef } = React;
 
-        const renderApp = () => {
-            const { 
-                initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged,
-                getFirestore, collection, doc, setDoc, getDoc, updateDoc, onSnapshot, deleteDoc 
-            } = window.FirebaseApi;
+        // ==========================================
+        // 1. ระบบสื่อสารกับ GAS Backend
+        // ==========================================
+        const fetchAPI = async (action, payload = {}) => {
+            return new Promise((resolve, reject) => {
+                if (typeof google !== 'undefined' && google.script && google.script.run) {
+                    google.script.run
+                        .withSuccessHandler(res => {
+                            if(res && res.success) resolve(res);
+                            else reject(new Error(res ? res.error : "Unknown error"));
+                        })
+                        .withFailureHandler(err => reject(err))
+                        .api(action, payload);
+                } else {
+                    reject(new Error("ต้องรันผ่าน Google Apps Script เท่านั้น"));
+                }
+            });
+        };
 
-            // ==========================================
-            // 0. ตั้งค่า Firebase
-            // ==========================================
-            const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-            const app = initializeApp(firebaseConfig);
-            const auth = getAuth(app);
-            const db = getFirestore(app);
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        // ==========================================
+        // 2. ระบบเสียง
+        // ==========================================
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const playTone = (freq, type, duration) => {
+            if(audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = type; osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.start(); gain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + duration);
+            osc.stop(audioCtx.currentTime + duration);
+        };
+        const Sounds = {
+            tick: () => playTone(800, 'square', 0.05),
+            join: () => { playTone(440, 'sine', 0.1); setTimeout(()=>playTone(554, 'sine', 0.2), 100); },
+            correct: () => { playTone(523.25, 'sine', 0.1); setTimeout(()=>playTone(659.25, 'sine', 0.2), 100); setTimeout(()=>playTone(783.99, 'sine', 0.4), 200); },
+            wrong: () => { playTone(300, 'sawtooth', 0.3); setTimeout(()=>playTone(250, 'sawtooth', 0.4), 200); },
+            fanfare: () => { playTone(523, 'square', 0.2); setTimeout(()=>playTone(523, 'square', 0.2), 200); setTimeout(()=>playTone(783, 'square', 0.6), 400); }
+        };
 
-            // ==========================================
-            // 1. ระบบเสียง
-            // ==========================================
-            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            const playTone = (freq, type, duration) => {
-                if(audioCtx.state === 'suspended') audioCtx.resume();
-                const osc = audioCtx.createOscillator();
-                const gain = audioCtx.createGain();
-                osc.type = type; osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-                osc.connect(gain); gain.connect(audioCtx.destination);
-                osc.start(); gain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + duration);
-                osc.stop(audioCtx.currentTime + duration);
-            };
+        // ==========================================
+        // 3. AI Generator (ย้ายไปรันบนฝั่งเซิร์ฟเวอร์เพื่อความเร็ว)
+        // ==========================================
+        const generateQuizData = async (topic, gradeLevel, questionCount) => {
+            return new Promise((resolve, reject) => {
+                if (typeof google !== 'undefined' && google.script && google.script.run) {
+                    google.script.run
+                        .withSuccessHandler(res => resolve(res))
+                        .withFailureHandler(err => reject(new Error(err.message || "การเชื่อมต่อ AI ขัดข้อง")))
+                        .generateQuizFromAI(topic, gradeLevel, questionCount);
+                } else {
+                    reject(new Error("ต้องรันผ่าน Google Apps Script เท่านั้น"));
+                }
+            });
+        };
 
-            const Sounds = {
-                tick: () => playTone(800, 'square', 0.05),
-                join: () => { playTone(440, 'sine', 0.1); setTimeout(()=>playTone(554, 'sine', 0.2), 100); },
-                correct: () => { playTone(523.25, 'sine', 0.1); setTimeout(()=>playTone(659.25, 'sine', 0.2), 100); setTimeout(()=>playTone(783.99, 'sine', 0.4), 200); },
-                wrong: () => { playTone(300, 'sawtooth', 0.3); setTimeout(()=>playTone(250, 'sawtooth', 0.4), 200); },
-                fanfare: () => { playTone(523, 'square', 0.2); setTimeout(()=>playTone(523, 'square', 0.2), 200); setTimeout(()=>playTone(783, 'square', 0.6), 400); }
-            };
+        const ShapeIcon = ({ index, className = "w-16 h-16 text-white" }) => {
+            const shapes = [
+                <polygon points="12 2 22 20 2 20" fill="currentColor"/>, 
+                <polygon points="12 2 22 12 12 22 2 12" fill="currentColor"/>, 
+                <circle cx="12" cy="12" r="10" fill="currentColor"/>, 
+                <rect x="3" y="3" width="18" height="18" rx="2" fill="currentColor"/> 
+            ];
+            return <svg viewBox="0 0 24 24" className={className}>{shapes[index]}</svg>;
+        };
 
-            // ==========================================
-            // 2. AI Generator (Gemini)
-            // ==========================================
-            const generateQuizData = async (topic, gradeLevel, questionCount) => {
-                const apiKey = ""; // API Key
-                const prompt = `สร้างคำถามปรนัย ${questionCount} ข้อเรื่อง "${topic}" ระดับ "${gradeLevel}"
-                เงื่อนไขสำคัญ:
-                1. คำถามต้อง "สั้น กระชับ เข้าใจง่าย"
-                2. ตัวเลือก 4 ข้อ สั้นๆ
-                3. ต้องมี "คำอธิบาย (explanation)" สั้นๆ 1 ประโยค ว่าทำไมข้อนี้ถึงถูก
+        const COLORS = ['bg-rose-500', 'bg-blue-500', 'bg-amber-500', 'bg-emerald-500'];
+
+        // ==========================================
+        // 4. MAIN APP COMPONENT
+        // ==========================================
+        function App() {
+            const [view, setView] = useState('home'); 
+            const [gamePin, setGamePin] = useState('');
+            const [userId, setUserId] = useState('');
+            const [gameState, setGameState] = useState(null);
+            const [errorMsg, setErrorMsg] = useState('');
+
+            // ปรับแต่ง Polling ให้อัปเดตทุก 2 วินาที เพื่อรักษาสมดุลความเร็วและรองรับผู้ใช้งานหลักร้อยคน
+            useEffect(() => {
+                let interval;
+                if (gamePin && view !== 'home') {
+                    interval = setInterval(() => {
+                        fetchAPI('getGameState', { pin: gamePin })
+                            .then(res => {
+                                if(res.success) setGameState(res.game);
+                            })
+                            .catch(err => {
+                                console.error(err);
+                                if(view === 'player') {
+                                    showError("ห้องเกมถูกปิด หรือเชื่อมต่อขัดข้อง");
+                                    goHome();
+                                }
+                            });
+                    }, 2000); 
+                }
+                return () => clearInterval(interval);
+            }, [gamePin, view]);
+
+            const showError = (msg) => { setErrorMsg(msg); setTimeout(() => setErrorMsg(''), 5000); };
+            const goHome = () => { setView('home'); setGamePin(''); setGameState(null); };
+
+            return (
+                <div className="min-h-screen flex flex-col font-['Kanit']">
+                    {errorMsg && (
+                        <div className="fixed top-4 right-4 bg-red-600 text-white px-6 py-4 rounded-2xl shadow-2xl z-50 animate-fade-in-up border-2 border-red-400 flex items-center font-bold text-lg">
+                            <i className="fa-solid fa-circle-exclamation mr-3"></i> {errorMsg}
+                        </div>
+                    )}
+                    
+                    {view === 'home' && <HomeView setView={setView} setGamePin={setGamePin} setUserId={setUserId} showError={showError} />}
+                    {view === 'host' && gameState && <HostView game={gameState} goHome={goHome} />}
+                    {view === 'player' && gameState && <PlayerView game={gameState} userId={userId} goHome={goHome} pin={gamePin} />}
+                </div>
+            );
+        }
+
+        // --- HOME VIEW ---
+        function HomeView({ setView, setGamePin, setUserId, showError }) {
+            const [mode, setMode] = useState('select'); 
+            const [pin, setPin] = useState('');
+            const [name, setName] = useState('');
+            const [topic, setTopic] = useState('');
+            const [grade, setGrade] = useState('ป.4');
+            const [count, setCount] = useState(5);
+            const [timeLimit, setTimeLimit] = useState(15);
+            const [loading, setLoading] = useState(false);
+            const [stats, setStats] = useState({ totalGames: 0, totalPlayers: 0 });
+
+            useEffect(() => {
+                fetchAPI('getDashboardStats').then(res => {
+                    if(res.success) setStats({ totalGames: res.totalGames, totalPlayers: res.totalPlayers });
+                }).catch(e => console.log("Stats err", e));
+            }, []);
+
+            useEffect(() => {
+                const urlParams = new URLSearchParams(window.location.search);
+                const pinParam = urlParams.get('pin');
+                if (pinParam) { setMode('join'); setPin(pinParam); }
+            }, []);
+
+            const handleJoin = async (e) => {
+                e.preventDefault();
+                const cleanPin = pin.trim();
+                if(!cleanPin || !name) return showError("กรอกข้อมูลให้ครบถ้วน");
                 
-                ตอบกลับเป็น JSON Array โครงสร้าง:
-                [{"question": "คำถาม?", "options": ["A", "B", "C", "D"], "correctIndex": 0, "explanation": "อธิบายสั้นๆ"}]`;
-
-                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        contents: [{ parts: [{ text: prompt }] }],
-                        generationConfig: { responseMimeType: "application/json" }
-                    })
-                });
-                const data = await res.json();
-                return JSON.parse(data.candidates[0].content.parts[0].text);
+                setLoading(true);
+                try {
+                    const res = await fetchAPI('joinGame', { pin: cleanPin, name });
+                    setGamePin(res.game.pin);
+                    setUserId(res.uid);
+                    setView('player');
+                    Sounds.join();
+                } catch(err) { showError(err.message); }
+                setLoading(false);
             };
 
-            // Components
-            const ShapeIcon = ({ index, className = "w-16 h-16 text-white" }) => {
-                const shapes = [
-                    <polygon points="12 2 22 20 2 20" fill="currentColor"/>, 
-                    <polygon points="12 2 22 12 12 22 2 12" fill="currentColor"/>, 
-                    <circle cx="12" cy="12" r="10" fill="currentColor"/>, 
-                    <rect x="3" y="3" width="18" height="18" rx="2" fill="currentColor"/> 
-                ];
-                return <svg viewBox="0 0 24 24" className={className}>{shapes[index]}</svg>;
+            const handleCreate = async (e) => {
+                e.preventDefault();
+                if(!topic) return showError("กรุณาระบุหัวข้อ");
+                
+                setLoading(true);
+                try {
+                    const questions = await generateQuizData(topic, grade, count);
+                    const res = await fetchAPI('createGame', { questions, topic, gradeLevel: grade, timeLimit: Number(timeLimit) });
+                    setGamePin(res.pin);
+                    setView('host');
+                } catch(err) { showError("สร้างห้องไม่สำเร็จ: " + err.message); }
+                setLoading(false);
             };
 
-            const COLORS = ['bg-rose-500', 'bg-blue-500', 'bg-amber-500', 'bg-emerald-500'];
-            const QUESTION_TIME_LIMIT = 15;
+            return (
+                <div className="flex-1 flex flex-col md:flex-row bg-slate-50">
+                    <div className="w-full md:w-[60%] bg-gradient-to-br from-indigo-600 via-purple-700 to-fuchsia-800 text-white p-8 md:p-16 flex flex-col justify-center relative overflow-hidden">
+                        <div className="absolute top-10 left-10 text-yellow-300 opacity-30 animate-float"><ShapeIcon index={0} className="w-20 h-20" /></div>
+                        <div className="absolute bottom-20 left-1/4 text-emerald-300 opacity-30 animate-float-delayed"><ShapeIcon index={2} className="w-24 h-24" /></div>
+                        <div className="absolute top-1/4 right-10 text-rose-300 opacity-30 animate-float" style={{animationDelay: '1s'}}><ShapeIcon index={1} className="w-16 h-16" /></div>
 
-            // ==========================================
-            // 3. MAIN APP COMPONENT
-            // ==========================================
-            function App() {
-                const [user, setUser] = useState(null);
-                const [view, setView] = useState('home'); 
-                const [gamePin, setGamePin] = useState('');
-                const [gameState, setGameState] = useState(null);
-                const [errorMsg, setErrorMsg] = useState('');
-
-                // การยืนยันตัวตน
-                useEffect(() => {
-                    const initAuth = async () => {
-                        try {
-                            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                                await signInWithCustomToken(auth, __initial_auth_token);
-                            } else {
-                                await signInAnonymously(auth);
-                            }
-                        } catch(e) { console.error("Auth Error", e); }
-                    };
-                    initAuth();
-                    const unsub = onAuthStateChanged(auth, setUser);
-                    return () => unsub();
-                }, []);
-
-                // ฟังข้อมูลห้องเกมแบบ Real-time
-                useEffect(() => {
-                    if (!user || !gamePin || view === 'home') return;
-                    
-                    const gameRef = doc(db, 'artifacts', appId, 'public', 'data', 'games', gamePin);
-                    const unsub = onSnapshot(gameRef, (docSnap) => {
-                        if (docSnap.exists()) {
-                            setGameState(docSnap.data());
-                        } else {
-                            if (view === 'player') {
-                                showError("คุณครูได้ปิดห้องเกมนี้ไปแล้วครับ");
-                                goHome();
-                            }
-                        }
-                    }, (err) => {
-                        console.error(err);
-                        showError("เกิดข้อผิดพลาดในการเชื่อมต่อ");
-                    });
-                    
-                    return () => unsub();
-                }, [user, gamePin, view]);
-
-                const showError = (msg) => { setErrorMsg(msg); setTimeout(() => setErrorMsg(''), 5000); };
-                const goHome = () => { setView('home'); setGamePin(''); setGameState(null); };
-
-                if (!user) return <div className="h-screen flex items-center justify-center font-['Kanit'] text-xl font-bold">กำลังเชื่อมต่อฐานข้อมูล...</div>;
-
-                return (
-                    <div className="min-h-screen flex flex-col font-['Kanit']">
-                        {errorMsg && (
-                            <div className="fixed top-4 right-4 bg-red-600 text-white px-6 py-4 rounded-2xl shadow-2xl z-50 animate-fade-in-up border-2 border-red-400 flex items-center font-bold text-lg">
-                                <i className="fa-solid fa-circle-exclamation mr-3"></i> {errorMsg}
+                        <div className="relative z-10 w-full max-w-2xl mx-auto">
+                            <div className="inline-block bg-white/20 px-6 py-2 rounded-full font-bold tracking-widest text-sm mb-6 backdrop-blur-sm border border-white/30 uppercase">
+                                สื่อการสอนยุคใหม่
                             </div>
-                        )}
-                        
-                        {view === 'home' && <HomeView setView={setView} setGamePin={setGamePin} showError={showError} user={user} db={db} appId={appId} />}
-                        {view === 'host' && gameState && <HostView game={gameState} goHome={goHome} db={db} appId={appId} />}
-                        {view === 'player' && gameState && <PlayerView game={gameState} userId={user.uid} goHome={goHome} pin={gamePin} db={db} appId={appId} />}
-                    </div>
-                );
-            }
-
-            // --- HOME VIEW ---
-            function HomeView({ setView, setGamePin, showError, user, db, appId }) {
-                const [mode, setMode] = useState('select'); 
-                const [pin, setPin] = useState('');
-                const [name, setName] = useState('');
-                const [topic, setTopic] = useState('');
-                const [grade, setGrade] = useState('ป.4');
-                const [count, setCount] = useState(5);
-                const [timeLimit, setTimeLimit] = useState(15);
-                const [loading, setLoading] = useState(false);
-                const [stats, setStats] = useState({ totalGames: 0, totalPlayers: 0 });
-
-                // โหลด Dashboard Stats
-                useEffect(() => {
-                    const statsRef = doc(db, 'artifacts', appId, 'public', 'data', 'stats', 'global');
-                    const unsub = onSnapshot(statsRef, (docSnap) => {
-                        if(docSnap.exists()) setStats(docSnap.data());
-                        else setDoc(statsRef, { totalGames: 0, totalPlayers: 0 });
-                    });
-                    return () => unsub();
-                }, [db, appId]);
-
-                useEffect(() => {
-                    const urlParams = new URLSearchParams(window.location.search);
-                    const pinParam = urlParams.get('pin');
-                    if (pinParam) {
-                        setMode('join');
-                        setPin(pinParam);
-                    }
-                }, []);
-
-                const handleJoin = async (e) => {
-                    e.preventDefault();
-                    const cleanPin = pin.trim();
-                    if(!cleanPin || !name) return showError("กรอกข้อมูลให้ครบถ้วน");
-                    
-                    setLoading(true);
-                    try {
-                        const gameRef = doc(db, 'artifacts', appId, 'public', 'data', 'games', cleanPin);
-                        const gameSnap = await getDoc(gameRef);
-                        
-                        if (!gameSnap.exists()) throw new Error("รหัสห้องไม่ถูกต้อง หรือห้องถูกปิดแล้ว");
-                        if (gameSnap.data().status !== 'lobby') throw new Error("เกมนี้เริ่มไปแล้วครับ!");
-
-                        await updateDoc(gameRef, {
-                            [`players.${user.uid}`]: { name, score: 0, lastAnswer: null, answerTime: null }
-                        });
-                        
-                        // อัปเดตสถิติผู้เล่น
-                        const statsRef = doc(db, 'artifacts', appId, 'public', 'data', 'stats', 'global');
-                        await setDoc(statsRef, { totalPlayers: (stats.totalPlayers || 0) + 1 }, { merge: true });
-
-                        setGamePin(cleanPin);
-                        setView('player');
-                        Sounds.join();
-                    } catch(err) { showError(err.message); }
-                    setLoading(false);
-                };
-
-                const handleCreate = async (e) => {
-                    e.preventDefault();
-                    if(!topic) return showError("กรุณาระบุหัวข้อ");
-                    
-                    setLoading(true);
-                    try {
-                        const questions = await generateQuizData(topic, grade, count);
-                        const newPin = Math.floor(1000 + Math.random() * 9000).toString();
-                        
-                        const gameRef = doc(db, 'artifacts', appId, 'public', 'data', 'games', newPin);
-                        await setDoc(gameRef, {
-                            pin: newPin,
-                            hostUid: user.uid,
-                            status: 'lobby',
-                            currentQuestionIndex: 0,
-                            timeLimit: Number(timeLimit),
-                            players: {},
-                            questions,
-                            topic,
-                            gradeLevel: grade,
-                            createdAt: Date.now()
-                        });
-                        
-                        // อัปเดตสถิติห้องเกม
-                        const statsRef = doc(db, 'artifacts', appId, 'public', 'data', 'stats', 'global');
-                        await setDoc(statsRef, { totalGames: (stats.totalGames || 0) + 1 }, { merge: true });
-
-                        setGamePin(newPin);
-                        setView('host');
-                    } catch(err) { showError("สร้างห้องไม่สำเร็จ: AI อาจจะตอบสนองช้า หรือเกิดข้อผิดพลาด"); }
-                    setLoading(false);
-                };
-
-                return (
-                    <div className="flex-1 flex flex-col md:flex-row bg-slate-50">
-                        {/* ด้านซ้าย: 60% อธิบายระบบ + Dashboard + เครดิต */}
-                        <div className="w-full md:w-[60%] bg-gradient-to-br from-indigo-600 via-purple-700 to-fuchsia-800 text-white p-8 md:p-16 flex flex-col justify-center relative overflow-hidden">
-                            {/* ของตกแต่ง */}
-                            <div className="absolute top-10 left-10 text-yellow-300 opacity-30 animate-float"><ShapeIcon index={0} className="w-20 h-20" /></div>
-                            <div className="absolute bottom-20 left-1/4 text-emerald-300 opacity-30 animate-float-delayed"><ShapeIcon index={2} className="w-24 h-24" /></div>
-                            <div className="absolute top-1/4 right-10 text-rose-300 opacity-30 animate-float" style={{animationDelay: '1s'}}><ShapeIcon index={1} className="w-16 h-16" /></div>
-
-                            <div className="relative z-10 w-full max-w-2xl mx-auto">
-                                <div className="inline-block bg-white/20 px-6 py-2 rounded-full font-bold tracking-widest text-sm mb-6 backdrop-blur-sm border border-white/30 uppercase">
-                                    สื่อการสอนยุคใหม่
-                                </div>
-                                <h1 className="text-6xl md:text-[6rem] font-black mb-6 tracking-tighter leading-none text-transparent bg-clip-text bg-gradient-to-br from-yellow-200 to-yellow-500 drop-shadow-sm">
-                                    TOBO <span className="text-white">Quiz</span>
-                                </h1>
-                                <p className="text-xl md:text-2xl text-purple-100 font-medium mb-10 leading-relaxed">
-                                    สร้างแบบทดสอบด้วย AI ภายใน 10 วินาที 
-                                    <br className="hidden md:block"/> ให้นักเรียนตอบคำถามผ่านมือถือได้พร้อมกันทั้งห้อง!
-                                </p>
-                                
-                                {/* Dashboard */}
-                                <div className="bg-white/10 p-6 rounded-3xl border border-white/20 backdrop-blur-md mb-10">
-                                    <h3 className="text-xl font-bold text-yellow-300 mb-4 flex items-center">
-                                        <i className="fa-solid fa-chart-pie mr-3"></i> แดชบอร์ดสรุปข้อมูลการใช้งาน
-                                    </h3>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="bg-black/30 p-5 rounded-2xl text-center shadow-inner">
-                                            <div className="text-5xl font-black text-white mb-1">{stats.totalGames}</div>
-                                            <div className="text-sm text-indigo-200 font-bold uppercase tracking-wider">ห้องเกมที่ถูกสร้าง</div>
-                                        </div>
-                                        <div className="bg-black/30 p-5 rounded-2xl text-center shadow-inner">
-                                            <div className="text-5xl font-black text-emerald-400 mb-1">{stats.totalPlayers}</div>
-                                            <div className="text-sm text-indigo-200 font-bold uppercase tracking-wider">ผู้เล่นทั้งหมด</div>
-                                        </div>
+                            <h1 className="text-6xl md:text-[6rem] font-black mb-6 tracking-tighter leading-none text-transparent bg-clip-text bg-gradient-to-br from-yellow-200 to-yellow-500 drop-shadow-sm">
+                                TOBO <span className="text-white">Quiz</span>
+                            </h1>
+                            <p className="text-xl md:text-2xl text-purple-100 font-medium mb-10 leading-relaxed">
+                                สร้างแบบทดสอบด้วย AI ภายใน 10 วินาที 
+                                <br className="hidden md:block"/> ให้นักเรียนตอบคำถามผ่านมือถือได้พร้อมกันทั้งห้อง!
+                            </p>
+                            
+                            <div className="bg-white/10 p-6 rounded-3xl border border-white/20 backdrop-blur-md mb-10">
+                                <h3 className="text-xl font-bold text-yellow-300 mb-4 flex items-center">
+                                    <i className="fa-solid fa-chart-pie mr-3"></i> แดชบอร์ดสรุปข้อมูลการใช้งาน
+                                </h3>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="bg-black/30 p-5 rounded-2xl text-center shadow-inner">
+                                        <div className="text-5xl font-black text-white mb-1">{stats.totalGames}</div>
+                                        <div className="text-sm text-indigo-200 font-bold uppercase tracking-wider">ห้องเกมที่ถูกสร้าง</div>
+                                    </div>
+                                    <div className="bg-black/30 p-5 rounded-2xl text-center shadow-inner">
+                                        <div className="text-5xl font-black text-emerald-400 mb-1">{stats.totalPlayers}</div>
+                                        <div className="text-sm text-indigo-200 font-bold uppercase tracking-wider">ผู้เล่นทั้งหมด</div>
                                     </div>
                                 </div>
+                            </div>
 
-                                {/* เครดิต */}
-                                <div className="bg-black/30 rounded-2xl p-5 backdrop-blur-sm border border-white/10 flex items-center">
-                                    <div className="bg-gradient-to-br from-indigo-400 to-purple-500 p-4 rounded-xl mr-5 shadow-lg">
-                                        <i className="fa-solid fa-code text-white text-2xl"></i>
+                            <div className="bg-black/30 rounded-2xl p-5 backdrop-blur-sm border border-white/10 flex items-center">
+                                <div className="bg-gradient-to-br from-indigo-400 to-purple-500 p-4 rounded-xl mr-5 shadow-lg">
+                                    <i className="fa-solid fa-code text-white text-2xl"></i>
+                                </div>
+                                <div>
+                                    <div className="text-sm text-yellow-300 font-bold uppercase tracking-widest mb-1">พัฒนาโดย</div>
+                                    <div className="text-base font-bold text-white mb-1">
+                                        ครูมิน อลีมิน เจ๊ะอีซอ <span className="text-purple-200 font-normal text-sm block md:inline">โรงเรียนบ้านเจ๊ะยอ</span>
+                                    </div>
+                                    <div className="text-base font-bold text-white">
+                                        ครูยี แวอัสรี แวมายิ <span className="text-purple-200 font-normal text-sm block md:inline">โรงเรียนบ้านปูโป๊ะ</span>
+                                    </div>
+                                    <div className="text-sm text-indigo-200 mt-2">สพป.นราธิวาส เขต 2</div>
+                                </div>
+                            </div>
+                            <div className="mt-4 text-sm text-indigo-200/80 italic border-l-2 border-indigo-400/50 pl-3">
+                                * หมายเหตุ: ระบบนี้พัฒนาขึ้นเพื่อใช้สำหรับการศึกษาเท่านั้น
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="w-full md:w-[40%] flex items-center justify-center p-6 md:p-12 relative bg-white border-l border-slate-200 shadow-[-10px_0_30px_rgba(0,0,0,0.03)]">
+                        <div className="w-full max-w-md">
+                            {loading ? (
+                                <div className="flex flex-col items-center justify-center py-20 text-indigo-600 animate-pulse">
+                                    <i className="fa-solid fa-spinner fa-spin text-7xl mb-6"></i>
+                                    <h2 className="text-3xl font-black text-center">กำลังเชื่อมต่อ...<br/><span className="text-xl text-slate-500 font-medium mt-2 block">กรุณารอสักครู่</span></h2>
+                                </div>
+                            ) : mode === 'select' ? (
+                                <div className="space-y-8 animate-fade-in-up text-center">
+                                    <div className="w-24 h-24 bg-indigo-100 text-indigo-600 rounded-[2rem] flex items-center justify-center mx-auto mb-2 transform rotate-12 shadow-lg">
+                                        <i className="fa-solid fa-gamepad text-5xl"></i>
+                                    </div>
+                                    <h2 className="text-4xl font-black text-slate-800">เข้าใช้งานในฐานะ?</h2>
+                                    
+                                    <div className="space-y-5 mt-8">
+                                        <button onClick={() => setMode('join')} className="w-full btn-3d-emerald rounded-[2rem] p-6 flex items-center justify-center text-3xl font-black">
+                                            <i className="fa-solid fa-users mr-4"></i> ผู้เล่น (นักเรียน)
+                                        </button>
+                                        <button onClick={() => setMode('create')} className="w-full btn-3d-blue rounded-[2rem] p-6 flex items-center justify-center text-3xl font-black">
+                                            <i className="fa-solid fa-person-chalkboard mr-4"></i> ผู้สร้าง (คุณครู)
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : mode === 'join' ? (
+                                <form onSubmit={handleJoin} className="space-y-6 animate-fade-in-up bg-white p-8 rounded-[2.5rem] shadow-[0_10px_40px_rgba(0,0,0,0.08)] border-2 border-slate-100">
+                                    <button type="button" onClick={()=>setMode('select')} className="text-slate-400 font-bold hover:text-indigo-600 flex items-center mb-2 transition-colors">
+                                        <i className="fa-solid fa-arrow-left mr-2"></i> ย้อนกลับ
+                                    </button>
+                                    <div className="text-center mb-8">
+                                        <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                                            <i className="fa-solid fa-users text-3xl"></i>
+                                        </div>
+                                        <h2 className="text-3xl font-black text-slate-800">เข้าห้องเกม</h2>
+                                    </div>
+                                    <input type="number" placeholder="รหัสห้อง (PIN)" value={pin} onChange={(e)=>setPin(e.target.value)} className="w-full text-center text-4xl font-black p-5 bg-slate-50 border-2 border-slate-200 rounded-2xl focus:border-emerald-500 focus:bg-white focus:outline-none tracking-widest placeholder:text-2xl placeholder:tracking-normal placeholder:font-medium text-slate-700 transition-all" required />
+                                    <input type="text" placeholder="ชื่อเล่นของคุณ" value={name} onChange={(e)=>setName(e.target.value)} className="w-full text-center text-2xl font-bold p-5 bg-slate-50 border-2 border-slate-200 rounded-2xl focus:border-emerald-500 focus:bg-white focus:outline-none text-slate-700 transition-all" required maxLength="15"/>
+                                    <button type="submit" className="w-full btn-3d-slate rounded-2xl p-5 text-2xl font-black mt-2">เข้าเล่นเลย!</button>
+                                </form>
+                            ) : (
+                                <form onSubmit={handleCreate} className="space-y-5 animate-fade-in-up bg-white p-8 rounded-[2.5rem] shadow-[0_10px_40px_rgba(0,0,0,0.08)] border-2 border-slate-100">
+                                    <button type="button" onClick={()=>setMode('select')} className="text-slate-400 font-bold hover:text-indigo-600 flex items-center transition-colors">
+                                        <i className="fa-solid fa-arrow-left mr-2"></i> ย้อนกลับ
+                                    </button>
+                                    <div className="text-center mb-6">
+                                        <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                                            <i className="fa-solid fa-wand-magic-sparkles text-3xl"></i>
+                                        </div>
+                                        <h2 className="text-3xl font-black text-slate-800">สร้างห้องด้วย AI</h2>
                                     </div>
                                     <div>
-                                        <div className="text-sm text-yellow-300 font-bold uppercase tracking-widest mb-1">พัฒนาโดย</div>
-                                        <div className="text-base font-bold text-white mb-1">
-                                            ครูมิน อลีมิน เจ๊ะอีซอ <span className="text-purple-200 font-normal text-sm block md:inline">โรงเรียนบ้านเจ๊ะยอ</span>
-                                        </div>
-                                        <div className="text-base font-bold text-white">
-                                            ครูยี แวอัสรี แวมายิ <span className="text-purple-200 font-normal text-sm block md:inline">โรงเรียนบ้านปูโป๊ะ</span>
-                                        </div>
-                                        <div className="text-sm text-indigo-200 mt-2">สพป.นราธิวาส เขต 2</div>
+                                        <label className="block text-slate-500 font-bold mb-2">หัวข้อเรื่อง / รายวิชา</label>
+                                        <input type="text" placeholder="เช่น สัตว์น่ารู้, ประวัติศาสตร์" value={topic} onChange={(e)=>setTopic(e.target.value)} className="w-full text-xl font-bold p-4 bg-slate-50 border-2 border-slate-200 rounded-xl focus:border-blue-500 focus:bg-white focus:outline-none transition-all" required />
                                     </div>
-                                </div>
-                                
-                                {/* หมายเหตุเพื่อการศึกษา */}
-                                <div className="mt-4 text-sm text-indigo-200/80 italic border-l-2 border-indigo-400/50 pl-3">
-                                    * หมายเหตุ: ระบบนี้พัฒนาขึ้นเพื่อใช้สำหรับการศึกษาเท่านั้น
-                                </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        <div>
+                                            <label className="block text-slate-500 font-bold mb-2">ระดับชั้น</label>
+                                            <select value={grade} onChange={(e)=>setGrade(e.target.value)} className="w-full text-xl font-bold p-4 bg-slate-50 border-2 border-slate-200 rounded-xl focus:border-blue-500 focus:bg-white focus:outline-none cursor-pointer transition-all">
+                                                {['ป.1','ป.2','ป.3','ป.4','ป.5','ป.6','ม.1','ม.2','ม.3','ม.4','ม.5','ม.6'].map(g => <option key={g} value={g}>{g}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-slate-500 font-bold mb-2">จำนวนข้อ</label>
+                                            <input type="number" value={count} onChange={(e)=>setCount(e.target.value)} min="1" max="20" className="w-full text-xl font-bold p-4 bg-slate-50 border-2 border-slate-200 rounded-xl focus:border-blue-500 focus:bg-white focus:outline-none transition-all" required />
+                                        </div>
+                                        <div>
+                                            <label className="block text-slate-500 font-bold mb-2">เวลาต่อข้อ</label>
+                                            <select value={timeLimit} onChange={(e)=>setTimeLimit(e.target.value)} className="w-full text-xl font-bold p-4 bg-slate-50 border-2 border-slate-200 rounded-xl focus:border-blue-500 focus:bg-white focus:outline-none cursor-pointer transition-all">
+                                                <option value="10">10 วิ</option>
+                                                <option value="15">15 วิ</option>
+                                                <option value="20">20 วิ</option>
+                                                <option value="30">30 วิ</option>
+                                                <option value="45">45 วิ</option>
+                                                <option value="60">60 วิ</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <button type="submit" className="w-full btn-3d-blue rounded-xl p-5 text-2xl font-black mt-6 flex items-center justify-center">
+                                        สร้างชุดคำถาม <i className="fa-solid fa-chevron-right ml-2"></i>
+                                    </button>
+                                </form>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // --- HOST VIEW (คุณครู) ---
+        function HostView({ game, goHome }) {
+            const players = Object.values(game.players || {});
+            const gameTimeLimit = game.timeLimit || 15;
+            const [timeLeft, setTimeLeft] = useState(gameTimeLimit);
+            const [showExplanation, setShowExplanation] = useState(false);
+            const [showQR, setShowQR] = useState(false);
+
+            const updateGame = async (updates) => {
+                fetchAPI('updateGameState', { pin: game.pin, updates });
+            };
+
+            useEffect(() => {
+                if (game.status === 'podium') Sounds.fanfare();
+            }, [game.status]);
+
+            useEffect(() => {
+                if (game.status === 'question' && game.questionStartTime) {
+                    const interval = setInterval(() => {
+                        const elapsed = (Date.now() - game.questionStartTime) / 1000;
+                        const remaining = Math.max(0, Math.ceil(gameTimeLimit - elapsed));
+                        setTimeLeft(remaining);
+                        
+                        if (remaining > 0 && remaining <= 5) Sounds.tick();
+                        if (remaining <= 0) {
+                            clearInterval(interval);
+                            updateGame({ status: 'reveal' });
+                        }
+                    }, 1000);
+                    return () => clearInterval(interval);
+                }
+            }, [game.status, game.questionStartTime]);
+
+            useEffect(() => {
+                if (game.status === 'question' && players.length > 0) {
+                    if (players.every(p => p.lastAnswer !== null)) updateGame({ status: 'reveal' });
+                }
+            }, [game.status, players]);
+
+            const endAndSave = async () => {
+                await fetchAPI('endGameAndSave', { pin: game.pin });
+                goHome();
+            };
+
+            if (game.status === 'lobby') {
+                let currentUrl = "";
+                try { currentUrl = window.top.location.href.split('?')[0]; } catch(e) { currentUrl = "https://script.google.com"; }
+                const joinUrl = currentUrl + '?pin=' + game.pin;
+                const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(joinUrl)}`;
+
+                return (
+                    <div className="flex-1 flex flex-col bg-slate-100 relative">
+                        <div className="bg-white px-8 py-4 flex justify-between items-center shadow-sm z-10 border-b border-slate-200">
+                            <div className="text-3xl font-black text-indigo-700 tracking-tight">TOBO <span className="text-yellow-500">Quiz</span></div>
+                            <div className="text-2xl font-bold bg-indigo-50 text-indigo-700 px-6 py-2 rounded-xl flex items-center border border-indigo-100">
+                                <i className="fa-solid fa-users mr-3"></i> <span className="text-3xl">{players.length}</span>
                             </div>
                         </div>
 
-                        {/* ด้านขวา: 40% เมนูผู้ใช้งาน */}
-                        <div className="w-full md:w-[40%] flex items-center justify-center p-6 md:p-12 relative bg-white border-l border-slate-200 shadow-[-10px_0_30px_rgba(0,0,0,0.03)]">
-                            <div className="w-full max-w-md">
-                                {loading ? (
-                                    <div className="flex flex-col items-center justify-center py-20 text-indigo-600 animate-pulse">
-                                        <i className="fa-solid fa-spinner fa-spin text-7xl mb-6"></i>
-                                        <h2 className="text-3xl font-black text-center">กำลังเชื่อมต่อ...<br/><span className="text-xl text-slate-500 font-medium mt-2 block">กรุณารอสักครู่</span></h2>
+                        <div className="flex-1 flex flex-col items-center justify-center pt-8 pb-4 text-center z-10">
+                            <h2 className="text-3xl md:text-4xl text-slate-500 font-black mb-4">เข้าร่วมเกมด้วย PIN หรือ สแกน QR Code</h2>
+                            
+                            {!showQR ? (
+                                <div className="text-[6rem] md:text-[10rem] font-black bg-white px-10 md:px-20 py-4 md:py-8 rounded-[3rem] md:rounded-[4rem] shadow-xl tracking-widest text-slate-800 border-b-8 border-indigo-200 mb-6">
+                                    {game.pin}
+                                </div>
+                            ) : (
+                                <div className="bg-white p-6 rounded-[2rem] shadow-xl mb-6 border-4 border-indigo-200 animate-fade-in-up">
+                                    <img src={qrUrl} alt="QR Code" className="w-48 h-48 md:w-64 md:h-64 object-contain" />
+                                </div>
+                            )}
+
+                            <button onClick={() => setShowQR(!showQR)} className="mb-6 text-indigo-600 font-bold bg-indigo-100 px-6 py-2 rounded-full hover:bg-indigo-200 flex items-center transition-colors">
+                                <i className="fa-solid fa-qrcode mr-2"></i> {showQR ? 'ซ่อน QR Code' : 'แสดง QR Code'}
+                            </button>
+
+                            {players.length > 0 && (
+                                <button onClick={() => updateGame({ status: 'question', currentQuestionIndex: 0, questionStartTime: Date.now() })} className="btn-3d btn-3d-blue px-12 md:px-16 py-4 md:py-6 text-3xl md:text-4xl font-black rounded-full flex items-center animate-bounce mt-4">
+                                    <i className="fa-solid fa-play mr-4"></i> เริ่มเกม!
+                                </button>
+                            )}
+                        </div>
+
+                        <div className="w-full bg-slate-200/80 p-8 flex-1 overflow-y-auto border-t-4 border-white shadow-inner">
+                            <div className="flex flex-wrap gap-4 justify-center items-start max-w-7xl mx-auto">
+                                {players.length === 0 ? <p className="text-3xl text-slate-400 font-bold mt-10">รอผู้เล่นเข้าร่วม...</p> : null}
+                                {players.map((p, i) => (
+                                    <div key={i} className="text-3xl md:text-4xl font-black text-indigo-700 bg-white px-8 py-4 rounded-full shadow-md border-2 border-indigo-100 uppercase tracking-wider animate-fade-in-up hover:-translate-y-1 transition-transform">
+                                        {p.name}
                                     </div>
-                                ) : mode === 'select' ? (
-                                    <div className="space-y-8 animate-fade-in-up text-center">
-                                        <div className="w-24 h-24 bg-indigo-100 text-indigo-600 rounded-[2rem] flex items-center justify-center mx-auto mb-2 transform rotate-12 shadow-lg">
-                                            <i className="fa-solid fa-gamepad text-5xl"></i>
-                                        </div>
-                                        <h2 className="text-4xl font-black text-slate-800">เข้าใช้งานในฐานะ?</h2>
-                                        
-                                        <div className="space-y-5 mt-8">
-                                            <button onClick={() => setMode('join')} className="w-full btn-3d-emerald rounded-[2rem] p-6 flex items-center justify-center text-3xl font-black">
-                                                <i className="fa-solid fa-users mr-4"></i> ผู้เล่น (นักเรียน)
-                                            </button>
-                                            <button onClick={() => setMode('create')} className="w-full btn-3d-blue rounded-[2rem] p-6 flex items-center justify-center text-3xl font-black">
-                                                <i className="fa-solid fa-person-chalkboard mr-4"></i> ผู้สร้าง (คุณครู)
-                                            </button>
-                                        </div>
-                                    </div>
-                                ) : mode === 'join' ? (
-                                    <form onSubmit={handleJoin} className="space-y-6 animate-fade-in-up bg-white p-8 rounded-[2.5rem] shadow-[0_10px_40px_rgba(0,0,0,0.08)] border-2 border-slate-100">
-                                        <button type="button" onClick={()=>setMode('select')} className="text-slate-400 font-bold hover:text-indigo-600 flex items-center mb-2 transition-colors">
-                                            <i className="fa-solid fa-arrow-left mr-2"></i> ย้อนกลับ
-                                        </button>
-                                        <div className="text-center mb-8">
-                                            <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                                                <i className="fa-solid fa-users text-3xl"></i>
-                                            </div>
-                                            <h2 className="text-3xl font-black text-slate-800">เข้าห้องเกม</h2>
-                                        </div>
-                                        <input type="number" placeholder="รหัสห้อง (PIN)" value={pin} onChange={(e)=>setPin(e.target.value)} className="w-full text-center text-4xl font-black p-5 bg-slate-50 border-2 border-slate-200 rounded-2xl focus:border-emerald-500 focus:bg-white focus:outline-none tracking-widest placeholder:text-2xl placeholder:tracking-normal placeholder:font-medium text-slate-700 transition-all" required />
-                                        <input type="text" placeholder="ชื่อเล่นของคุณ" value={name} onChange={(e)=>setName(e.target.value)} className="w-full text-center text-2xl font-bold p-5 bg-slate-50 border-2 border-slate-200 rounded-2xl focus:border-emerald-500 focus:bg-white focus:outline-none text-slate-700 transition-all" required maxLength="15"/>
-                                        <button type="submit" className="w-full btn-3d-slate rounded-2xl p-5 text-2xl font-black mt-2">เข้าเล่นเลย!</button>
-                                    </form>
-                                ) : (
-                                    <form onSubmit={handleCreate} className="space-y-5 animate-fade-in-up bg-white p-8 rounded-[2.5rem] shadow-[0_10px_40px_rgba(0,0,0,0.08)] border-2 border-slate-100">
-                                        <button type="button" onClick={()=>setMode('select')} className="text-slate-400 font-bold hover:text-indigo-600 flex items-center transition-colors">
-                                            <i className="fa-solid fa-arrow-left mr-2"></i> ย้อนกลับ
-                                        </button>
-                                        <div className="text-center mb-6">
-                                            <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                                                <i className="fa-solid fa-wand-magic-sparkles text-3xl"></i>
-                                            </div>
-                                            <h2 className="text-3xl font-black text-slate-800">สร้างห้องด้วย AI</h2>
-                                        </div>
-                                        <div>
-                                            <label className="block text-slate-500 font-bold mb-2">หัวข้อเรื่อง / รายวิชา</label>
-                                            <input type="text" placeholder="เช่น สัตว์น่ารู้, ประวัติศาสตร์" value={topic} onChange={(e)=>setTopic(e.target.value)} className="w-full text-xl font-bold p-4 bg-slate-50 border-2 border-slate-200 rounded-xl focus:border-blue-500 focus:bg-white focus:outline-none transition-all" required />
-                                        </div>
-                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                            <div>
-                                                <label className="block text-slate-500 font-bold mb-2">ระดับชั้น</label>
-                                                <select value={grade} onChange={(e)=>setGrade(e.target.value)} className="w-full text-xl font-bold p-4 bg-slate-50 border-2 border-slate-200 rounded-xl focus:border-blue-500 focus:bg-white focus:outline-none cursor-pointer transition-all">
-                                                    {['ป.1','ป.2','ป.3','ป.4','ป.5','ป.6','ม.1','ม.2','ม.3','ม.4','ม.5','ม.6'].map(g => <option key={g} value={g}>{g}</option>)}
-                                                </select>
-                                            </div>
-                                            <div>
-                                                <label className="block text-slate-500 font-bold mb-2">จำนวนข้อ</label>
-                                                <input type="number" value={count} onChange={(e)=>setCount(e.target.value)} min="1" max="20" className="w-full text-xl font-bold p-4 bg-slate-50 border-2 border-slate-200 rounded-xl focus:border-blue-500 focus:bg-white focus:outline-none transition-all" required />
-                                            </div>
-                                            <div>
-                                                <label className="block text-slate-500 font-bold mb-2">เวลาต่อข้อ</label>
-                                                <select value={timeLimit} onChange={(e)=>setTimeLimit(e.target.value)} className="w-full text-xl font-bold p-4 bg-slate-50 border-2 border-slate-200 rounded-xl focus:border-blue-500 focus:bg-white focus:outline-none cursor-pointer transition-all">
-                                                    <option value="10">10 วินาที</option>
-                                                    <option value="15">15 วินาที</option>
-                                                    <option value="20">20 วินาที</option>
-                                                    <option value="30">30 วินาที</option>
-                                                    <option value="45">45 วินาที</option>
-                                                    <option value="60">60 วินาที</option>
-                                                </select>
-                                            </div>
-                                        </div>
-                                        <button type="submit" className="w-full btn-3d-blue rounded-xl p-5 text-2xl font-black mt-6 flex items-center justify-center">
-                                            สร้างชุดคำถาม <i className="fa-solid fa-chevron-right ml-2"></i>
-                                        </button>
-                                    </form>
-                                )}
+                                ))}
                             </div>
                         </div>
                     </div>
                 );
             }
 
-            // --- HOST VIEW (คุณครู) ---
-            function HostView({ game, goHome, db, appId }) {
-                const players = Object.values(game.players || {});
-                const gameTimeLimit = game.timeLimit || 15;
-                const [timeLeft, setTimeLeft] = useState(gameTimeLimit);
-                const [showExplanation, setShowExplanation] = useState(false);
-                const [showQR, setShowQR] = useState(false);
+            const currentQ = game.questions[game.currentQuestionIndex];
+            const isReveal = game.status === 'reveal';
+            const isLast = game.currentQuestionIndex >= game.questions.length - 1;
+            const answerCounts = [0, 0, 0, 0];
+            players.forEach(p => { if (p.lastAnswer !== null) answerCounts[p.lastAnswer]++; });
 
-                const updateGame = async (updates) => {
-                    const gameRef = doc(db, 'artifacts', appId, 'public', 'data', 'games', game.pin);
-                    await updateDoc(gameRef, updates);
-                };
-
-                // ย้ายระบบเล่นเสียง (Fanfare) มาไว้ด้านบนเพื่อป้องกัน React Error หน้าจอขาว
-                useEffect(() => {
-                    if (game.status === 'podium') {
-                        Sounds.fanfare();
-                    }
-                }, [game.status]);
-
-                useEffect(() => {
-                    if (game.status === 'question' && game.questionStartTime) {
-                        const interval = setInterval(() => {
-                            const elapsed = (Date.now() - game.questionStartTime) / 1000;
-                            const remaining = Math.max(0, Math.ceil(gameTimeLimit - elapsed));
-                            setTimeLeft(remaining);
-                            
-                            if (remaining > 0 && remaining <= 5) Sounds.tick();
-                            
-                            if (remaining <= 0) {
-                                clearInterval(interval);
-                                updateGame({ status: 'reveal' });
-                            }
-                        }, 1000);
-                        return () => clearInterval(interval);
-                    }
-                }, [game.status, game.questionStartTime]);
-
-                useEffect(() => {
-                    if (game.status === 'question' && players.length > 0) {
-                        if (players.every(p => p.lastAnswer !== null)) updateGame({ status: 'reveal' });
-                    }
-                }, [game.status, players]);
-
-                const endAndSave = async () => {
-                    const gameRef = doc(db, 'artifacts', appId, 'public', 'data', 'games', game.pin);
-                    await deleteDoc(gameRef);
-                    goHome();
-                };
-
-                // LOBBY STATE
-                if (game.status === 'lobby') {
-                    const joinUrl = window.location.origin + window.location.pathname + '?pin=' + game.pin;
-                    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(joinUrl)}`;
-
-                    return (
-                        <div className="flex-1 flex flex-col bg-slate-100 relative">
-                            <div className="bg-white px-8 py-4 flex justify-between items-center shadow-sm z-10 border-b border-slate-200">
-                                <div className="text-3xl font-black text-indigo-700 tracking-tight">TOBO <span className="text-yellow-500">Quiz</span></div>
-                                <div className="text-2xl font-bold bg-indigo-50 text-indigo-700 px-6 py-2 rounded-xl flex items-center border border-indigo-100">
-                                    <i className="fa-solid fa-users mr-3"></i> <span className="text-3xl">{players.length}</span>
+            if (game.status === 'question' || game.status === 'reveal') {
+                return (
+                    <div className="flex-1 flex flex-col bg-slate-100 p-4 md:p-8 relative">
+                        {showExplanation && (
+                            <div className="absolute inset-0 bg-black/80 z-50 flex flex-col items-center justify-center p-4 md:p-8 backdrop-blur-sm">
+                                <div className="bg-white w-full max-w-4xl rounded-[3rem] p-8 md:p-12 text-center animate-fade-in-up relative shadow-2xl border-b-8 border-indigo-500">
+                                    <div className="flex justify-end w-full mb-6">
+                                       <button onClick={()=>setShowExplanation(false)} className="bg-rose-100 text-rose-600 hover:bg-rose-500 hover:text-white px-6 py-3 rounded-full font-bold text-xl flex items-center transition-colors shadow-sm">
+                                           <i className="fa-solid fa-xmark mr-3 text-2xl"></i> ปิดคำอธิบาย
+                                       </button>
+                                    </div>
+                                    <h3 className="text-3xl md:text-5xl font-black text-indigo-600 mb-8 flex items-center justify-center">
+                                        <i className="fa-solid fa-lightbulb mr-4 text-yellow-400 text-5xl"></i> คำอธิบายเฉลย
+                                    </h3>
+                                    <p className="text-3xl md:text-5xl font-bold text-slate-700 leading-normal mb-8">{currentQ.explanation}</p>
                                 </div>
                             </div>
+                        )}
 
-                            <div className="flex-1 flex flex-col items-center justify-center pt-8 pb-4 text-center z-10">
-                                <h2 className="text-3xl md:text-4xl text-slate-500 font-black mb-4">เข้าร่วมเกมด้วย PIN หรือ สแกน QR Code</h2>
-                                
-                                {!showQR ? (
-                                    <div className="text-[6rem] md:text-[10rem] font-black bg-white px-10 md:px-20 py-4 md:py-8 rounded-[3rem] md:rounded-[4rem] shadow-xl tracking-widest text-slate-800 border-b-8 border-indigo-200 mb-6">
-                                        {game.pin}
-                                    </div>
-                                ) : (
-                                    <div className="bg-white p-6 rounded-[2rem] shadow-xl mb-6 border-4 border-indigo-200 animate-fade-in-up">
-                                        <img src={qrUrl} alt="QR Code" className="w-48 h-48 md:w-64 md:h-64 object-contain" />
-                                    </div>
-                                )}
-
-                                <button onClick={() => setShowQR(!showQR)} className="mb-6 text-indigo-600 font-bold bg-indigo-100 px-6 py-2 rounded-full hover:bg-indigo-200 flex items-center transition-colors">
-                                    <i className="fa-solid fa-qrcode mr-2"></i> {showQR ? 'ซ่อน QR Code' : 'แสดง QR Code'}
-                                </button>
-
-                                {players.length > 0 && (
-                                    <button onClick={() => updateGame({ status: 'question', currentQuestionIndex: 0, questionStartTime: Date.now() })} className="btn-3d btn-3d-blue px-12 md:px-16 py-4 md:py-6 text-3xl md:text-4xl font-black rounded-full flex items-center animate-bounce mt-4">
-                                        <i className="fa-solid fa-play mr-4"></i> เริ่มเกม!
+                        <div className="flex justify-between items-center mb-6">
+                            <div className="bg-white px-6 md:px-8 py-3 rounded-2xl font-black text-xl md:text-2xl shadow-sm border-2 border-slate-200 text-indigo-600">
+                                ข้อ {game.currentQuestionIndex + 1} / {game.questions.length}
+                            </div>
+                            
+                            {isReveal ? (
+                                <div className="flex gap-2 md:gap-4">
+                                    <button onClick={()=>setShowExplanation(true)} className="btn-3d bg-amber-500 px-6 md:px-8 py-3 md:py-4 font-black text-xl md:text-2xl text-white rounded-2xl hover:bg-amber-600 flex items-center">
+                                        <i className="fa-solid fa-circle-info mr-2"></i> คำอธิบาย
                                     </button>
-                                )}
-                            </div>
-
-                            <div className="w-full bg-slate-200/80 p-8 flex-1 overflow-y-auto border-t-4 border-white shadow-inner">
-                                <div className="flex flex-wrap gap-4 justify-center items-start max-w-7xl mx-auto">
-                                    {players.length === 0 ? <p className="text-3xl text-slate-400 font-bold mt-10">รอผู้เล่นเข้าร่วม...</p> : null}
-                                    {players.map((p, i) => (
-                                        <div key={i} className="text-3xl md:text-4xl font-black text-indigo-700 bg-white px-8 py-4 rounded-full shadow-md border-2 border-indigo-100 uppercase tracking-wider animate-fade-in-up hover:-translate-y-1 transition-transform">
-                                            {p.name}
-                                        </div>
-                                    ))}
+                                    <button onClick={() => updateGame({ status: isLast ? 'podium' : 'leaderboard' })} className={`btn-3d px-6 md:px-10 py-3 md:py-4 font-black text-xl md:text-2xl rounded-2xl flex items-center ${isLast ? 'bg-pink-600 hover:bg-pink-700 text-white' : 'btn-3d-blue'}`}>
+                                        {isLast ? 'สรุปผล' : 'ถัดไป'} <i className={`fa-solid ${isLast ? 'fa-trophy' : 'fa-chevron-right'} ml-2`}></i>
+                                    </button>
                                 </div>
-                            </div>
-                        </div>
-                    );
-                }
-
-                const currentQ = game.questions[game.currentQuestionIndex];
-                const isReveal = game.status === 'reveal';
-                const isLast = game.currentQuestionIndex >= game.questions.length - 1;
-                const answerCounts = [0, 0, 0, 0];
-                players.forEach(p => { if (p.lastAnswer !== null) answerCounts[p.lastAnswer]++; });
-
-                // QUESTION / REVEAL STATE
-                if (game.status === 'question' || game.status === 'reveal') {
-                    return (
-                        <div className="flex-1 flex flex-col bg-slate-100 p-4 md:p-8 relative">
-                            {/* คำอธิบาย Modal (อัปเดตปุ่มปิดใหญ่ๆ) */}
-                            {showExplanation && (
-                                <div className="absolute inset-0 bg-black/80 z-50 flex flex-col items-center justify-center p-4 md:p-8 backdrop-blur-sm">
-                                    <div className="bg-white w-full max-w-4xl rounded-[3rem] p-8 md:p-12 text-center animate-fade-in-up relative shadow-2xl border-b-8 border-indigo-500">
-                                        
-                                        <div className="flex justify-end w-full mb-6">
-                                           <button onClick={()=>setShowExplanation(false)} className="bg-rose-100 text-rose-600 hover:bg-rose-500 hover:text-white px-6 py-3 rounded-full font-bold text-xl flex items-center transition-colors shadow-sm">
-                                               <i className="fa-solid fa-xmark mr-3 text-2xl"></i> ปิดคำอธิบาย
-                                           </button>
-                                        </div>
-                                        
-                                        <h3 className="text-3xl md:text-5xl font-black text-indigo-600 mb-8 flex items-center justify-center">
-                                            <i className="fa-solid fa-lightbulb mr-4 text-yellow-400 text-5xl"></i> คำอธิบายเฉลย
-                                        </h3>
-                                        <p className="text-3xl md:text-5xl font-bold text-slate-700 leading-normal mb-8">{currentQ.explanation}</p>
+                            ) : (
+                                <div className="flex items-center space-x-4 md:space-x-8">
+                                    <div className="text-xl md:text-2xl font-bold text-slate-500 bg-white px-6 md:px-8 py-3 rounded-2xl shadow-sm border-2 border-slate-200">
+                                        ตอบ: <span className="text-indigo-600 font-black">{players.filter(p=>p.lastAnswer!==null).length}</span>/{players.length}
+                                    </div>
+                                    <div className={`w-20 h-20 md:w-24 md:h-24 rounded-full flex items-center justify-center text-4xl md:text-5xl font-black shadow-lg border-4 ${timeLeft <= 5 ? 'bg-red-500 border-red-200 animate-pulse text-white' : 'bg-indigo-600 border-indigo-200 text-white'}`}>
+                                        {timeLeft}
                                     </div>
                                 </div>
                             )}
+                        </div>
 
-                            <div className="flex justify-between items-center mb-6">
-                                <div className="bg-white px-6 md:px-8 py-3 rounded-2xl font-black text-xl md:text-2xl shadow-sm border-2 border-slate-200 text-indigo-600">
-                                    ข้อ {game.currentQuestionIndex + 1} / {game.questions.length}
-                                </div>
-                                
-                                {isReveal ? (
-                                    <div className="flex gap-2 md:gap-4">
-                                        <button onClick={()=>setShowExplanation(true)} className="btn-3d bg-amber-500 px-6 md:px-8 py-3 md:py-4 font-black text-xl md:text-2xl text-white rounded-2xl hover:bg-amber-600 flex items-center">
-                                            <i className="fa-solid fa-circle-info mr-2"></i> คำอธิบาย
-                                        </button>
-                                        <button onClick={() => updateGame({ status: isLast ? 'podium' : 'leaderboard' })} className={`btn-3d px-6 md:px-10 py-3 md:py-4 font-black text-xl md:text-2xl rounded-2xl flex items-center ${isLast ? 'bg-pink-600 hover:bg-pink-700 text-white' : 'btn-3d-blue'}`}>
-                                            {isLast ? 'สรุปผล' : 'ถัดไป'} <i className={`fa-solid ${isLast ? 'fa-trophy' : 'fa-chevron-right'} ml-2`}></i>
-                                        </button>
-                                    </div>
-                                ) : (
-                                    <div className="flex items-center space-x-4 md:space-x-8">
-                                        <div className="text-xl md:text-2xl font-bold text-slate-500 bg-white px-6 md:px-8 py-3 rounded-2xl shadow-sm border-2 border-slate-200">
-                                            ตอบ: <span className="text-indigo-600 font-black">{players.filter(p=>p.lastAnswer!==null).length}</span>/{players.length}
-                                        </div>
-                                        <div className={`w-20 h-20 md:w-24 md:h-24 rounded-full flex items-center justify-center text-4xl md:text-5xl font-black shadow-lg border-4 ${timeLeft <= 5 ? 'bg-red-500 border-red-200 animate-pulse text-white' : 'bg-indigo-600 border-indigo-200 text-white'}`}>
-                                            {timeLeft}
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
+                        <div className="bg-white flex-1 rounded-[3rem] shadow-lg flex flex-col items-center justify-center p-8 md:p-16 mb-8 text-center border-b-8 border-indigo-100">
+                            <h2 className="text-4xl md:text-7xl font-black text-slate-800 leading-normal">{currentQ.question}</h2>
+                        </div>
 
-                            <div className="bg-white flex-1 rounded-[3rem] shadow-lg flex flex-col items-center justify-center p-8 md:p-16 mb-8 text-center border-b-8 border-indigo-100">
-                                <h2 className="text-4xl md:text-7xl font-black text-slate-800 leading-normal">{currentQ.question}</h2>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-4 md:gap-8 min-h-[250px] md:min-h-[320px]">
-                                {currentQ.options.map((opt, idx) => {
-                                    const isCorrect = idx === currentQ.correctIndex;
-                                    const dimClass = isReveal && !isCorrect ? 'opacity-30 scale-95 grayscale' : (isReveal && isCorrect ? 'scale-105 z-10 shadow-2xl ring-8 ring-emerald-400' : '');
-                                    return (
-                                        <div key={idx} className={`${COLORS[idx]} ${dimClass} rounded-[2.5rem] shadow-md relative flex flex-col items-center justify-center p-4 md:p-6 transition-all duration-500`}>
-                                            <div className="absolute top-4 left-4 opacity-80"><ShapeIcon index={idx} className="w-8 h-8 md:w-12 md:h-12 text-white" /></div>
-                                            <span className="text-white font-black text-3xl md:text-5xl text-center px-4 md:px-16 z-10 drop-shadow-md">{opt}</span>
-                                            
-                                            {isReveal && (
-                                                <div className="absolute bottom-4 w-full flex justify-center z-20">
-                                                    <div className="bg-black/60 text-white font-black text-2xl md:text-3xl px-6 py-2 rounded-full flex items-center shadow-inner">
-                                                        <i className="fa-solid fa-users mr-3"></i> {answerCounts[idx]}
-                                                    </div>
+                        <div className="grid grid-cols-2 gap-4 md:gap-8 min-h-[250px] md:min-h-[320px]">
+                            {currentQ.options.map((opt, idx) => {
+                                const isCorrect = idx === currentQ.correctIndex;
+                                const dimClass = isReveal && !isCorrect ? 'opacity-30 scale-95 grayscale' : (isReveal && isCorrect ? 'scale-105 z-10 shadow-2xl ring-8 ring-emerald-400' : '');
+                                return (
+                                    <div key={idx} className={`${COLORS[idx]} ${dimClass} rounded-[2.5rem] shadow-md relative flex flex-col items-center justify-center p-4 md:p-6 transition-all duration-500`}>
+                                        <div className="absolute top-4 left-4 opacity-80"><ShapeIcon index={idx} className="w-8 h-8 md:w-12 md:h-12 text-white" /></div>
+                                        <span className="text-white font-black text-3xl md:text-5xl text-center px-4 md:px-16 z-10 drop-shadow-md">{opt}</span>
+                                        
+                                        {isReveal && (
+                                            <div className="absolute bottom-4 w-full flex justify-center z-20">
+                                                <div className="bg-black/60 text-white font-black text-2xl md:text-3xl px-6 py-2 rounded-full flex items-center shadow-inner">
+                                                    <i className="fa-solid fa-users mr-3"></i> {answerCounts[idx]}
                                                 </div>
-                                            )}
-                                            {isReveal && isCorrect && <div className="absolute top-4 right-4 text-white bg-black/30 rounded-full p-2 backdrop-blur-sm animate-bounce z-20"><i className="fa-solid fa-check w-12 h-12 flex items-center justify-center text-3xl"></i></div>}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    );
-                }
-
-                // LEADERBOARD
-                if (game.status === 'leaderboard') {
-                    const sortedPlayers = Object.entries(game.players || {}).map(([uid, data]) => ({ uid, ...data })).sort((a, b) => b.score - a.score).slice(0, 5);
-                    const isLast = game.currentQuestionIndex >= game.questions.length - 1;
-
-                    const nextAction = async () => {
-                        if (isLast) updateGame({ status: 'podium' });
-                        else {
-                            let updates = { status: 'question', currentQuestionIndex: game.currentQuestionIndex + 1, questionStartTime: Date.now() };
-                            Object.keys(game.players).forEach(uid => {
-                                updates[`players.${uid}.lastAnswer`] = null;
-                                updates[`players.${uid}.answerTime`] = null;
-                            });
-                            updateGame(updates);
-                        }
-                    };
-
-                    return (
-                        <div className="flex-1 flex flex-col bg-gradient-to-br from-indigo-800 to-purple-900 p-6 md:p-10 overflow-y-auto">
-                            <div className="flex flex-col md:flex-row justify-between items-center mb-8 md:mb-12 gap-4">
-                                <h2 className="text-4xl md:text-5xl font-black text-white drop-shadow-lg tracking-wide text-center">กระดานผู้นำ (Top 5)</h2>
-                                <button onClick={nextAction} className="btn-3d px-10 py-4 font-black text-2xl md:text-3xl bg-white text-indigo-700 rounded-3xl hover:bg-slate-50 flex items-center w-full md:w-auto justify-center">
-                                    {isLast ? 'ดูสรุปผล' : 'ข้อต่อไป'} <i className="fa-solid fa-chevron-right ml-3"></i>
-                                </button>
-                            </div>
-                            <div className="flex-1 flex flex-col max-w-5xl w-full mx-auto space-y-4 md:space-y-6">
-                                {sortedPlayers.map((p, index) => (
-                                    <div key={p.uid} className="bg-white/95 backdrop-blur-md rounded-3xl flex items-center p-4 md:p-6 shadow-xl animate-fade-in-up border-2 border-white/30" style={{ animationDelay: `${index * 150}ms` }}>
-                                        <div className="font-black w-16 md:w-24 text-center">
-                                            {index === 0 ? <span className="text-5xl md:text-6xl animate-bounce drop-shadow-lg inline-block">👑</span> : <span className="text-4xl md:text-5xl text-slate-400">{index + 1}</span>}
-                                        </div>
-                                        <div className="flex-1 font-black text-3xl md:text-4xl text-slate-800 ml-4 md:ml-6 tracking-wide truncate">{p.name}</div>
-                                        <div className="font-black text-3xl md:text-4xl text-indigo-700 bg-indigo-100/80 px-6 py-3 rounded-2xl border border-indigo-200 shadow-inner">
-                                            {p.score} <span className="text-xl md:text-2xl opacity-70">pts</span>
-                                        </div>
+                                            </div>
+                                        )}
+                                        {isReveal && isCorrect && <div className="absolute top-4 right-4 text-white bg-black/30 rounded-full p-2 backdrop-blur-sm animate-bounce z-20"><i className="fa-solid fa-check w-12 h-12 flex items-center justify-center text-3xl"></i></div>}
                                     </div>
-                                ))}
-                            </div>
+                                );
+                            })}
                         </div>
-                    );
-                }
-
-                // PODIUM
-                if (game.status === 'podium') {
-                    const sorted = Object.values(game.players || {}).sort((a, b) => b.score - a.score);
-                    const [first, second, third] = sorted;
-                    const others = sorted.slice(3); // เก็บข้อมูลผู้เล่นอันดับที่ 4 เป็นต้นไป
-
-                    return (
-                        <div className="flex-1 flex flex-col bg-gradient-to-b from-slate-900 via-indigo-900 to-purple-900 overflow-y-auto relative">
-                            {/* เอฟเฟกต์ตกแต่งฉากหลัง (Confetti) */}
-                            <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
-                                {[...Array(15)].map((_, i) => (
-                                    <div key={i} className="absolute text-4xl animate-float opacity-80" style={{
-                                        left: `${Math.random() * 100}%`,
-                                        top: `${Math.random() * 100}%`,
-                                        animationDelay: `${Math.random() * 5}s`,
-                                        animationDuration: `${5 + Math.random() * 5}s`
-                                    }}>
-                                        {['🎉', '🎊', '✨', '⭐', '🏆'][Math.floor(Math.random() * 5)]}
-                                    </div>
-                                ))}
-                            </div>
-
-                            <div className="w-full flex flex-col md:flex-row justify-between items-center p-6 md:p-10 z-30 gap-4 mt-4">
-                                <h2 className="text-5xl md:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 to-yellow-600 drop-shadow-[0_5px_5px_rgba(0,0,0,1)] tracking-tighter text-center">
-                                    🏆 สรุปผลการแข่งขัน! 🏆
-                                </h2>
-                                <button onClick={endAndSave} className="btn-3d bg-white text-indigo-900 px-8 py-4 rounded-full font-black text-xl flex items-center hover:bg-slate-200 shadow-xl">
-                                    <i className="fa-solid fa-house mr-3"></i> จบเกมและกลับหน้าแรก
-                                </button>
-                            </div>
-
-                            <div className="flex flex-col items-center z-20 pb-16 px-4 w-full mt-4 md:mt-10">
-                                {/* แท่นรับรางวัล Top 3 (รูปแบบการ์ด) */}
-                                <div className="flex flex-col md:flex-row items-center justify-center gap-6 md:gap-8 w-full max-w-5xl relative mt-8">
-                                    {/* 2nd Place */}
-                                    {second && (
-                                        <div className="w-full md:w-1/3 order-2 md:order-1 bg-gradient-to-br from-slate-200 to-slate-400 rounded-3xl p-6 shadow-2xl flex flex-col items-center transform md:-translate-y-4 border-4 border-slate-100 animate-fade-in-up" style={{animationDelay: '0.5s'}}>
-                                            <div className="w-20 h-20 bg-white/50 rounded-full flex items-center justify-center text-5xl shadow-inner mb-4">🥈</div>
-                                            <h3 className="text-3xl font-black text-slate-800 truncate w-full text-center px-2">{second.name}</h3>
-                                            <div className="mt-4 bg-slate-800/10 px-6 py-2 rounded-full font-bold text-slate-900 text-xl">{second.score} pts</div>
-                                        </div>
-                                    )}
-                                    {/* 1st Place */}
-                                    {first && (
-                                        <div className="w-full md:w-1/3 order-1 md:order-2 bg-gradient-to-br from-yellow-300 to-yellow-500 rounded-3xl p-8 shadow-[0_0_40px_rgba(250,204,21,0.6)] flex flex-col items-center transform md:-translate-y-12 border-4 border-yellow-100 animate-fade-in-up z-10" style={{animationDelay: '1s'}}>
-                                            <div className="absolute -top-10 text-6xl animate-bounce">👑</div>
-                                            <div className="w-24 h-24 bg-white/50 rounded-full flex items-center justify-center text-6xl shadow-inner mb-4 mt-2">🥇</div>
-                                            <h3 className="text-4xl font-black text-yellow-950 truncate w-full text-center px-2">{first.name}</h3>
-                                            <div className="mt-4 bg-yellow-900/10 px-8 py-3 rounded-full font-black text-yellow-950 text-2xl">{first.score} pts</div>
-                                        </div>
-                                    )}
-                                    {/* 3rd Place */}
-                                    {third && (
-                                        <div className="w-full md:w-1/3 order-3 md:order-3 bg-gradient-to-br from-orange-400 to-orange-600 rounded-3xl p-6 shadow-2xl flex flex-col items-center transform md:-translate-y-0 border-4 border-orange-200 animate-fade-in-up" style={{animationDelay: '0s'}}>
-                                            <div className="w-20 h-20 bg-white/30 rounded-full flex items-center justify-center text-5xl shadow-inner mb-4">🥉</div>
-                                            <h3 className="text-3xl font-black text-orange-950 truncate w-full text-center px-2">{third.name}</h3>
-                                            <div className="mt-4 bg-orange-900/10 px-6 py-2 rounded-full font-bold text-orange-950 text-xl">{third.score} pts</div>
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* รายชื่ออันดับอื่นๆ (ถ้ามีผู้เล่นมากกว่า 3 คน) */}
-                                {others.length > 0 && (
-                                    <div className="w-full max-w-4xl mt-12 md:mt-20 bg-white/10 backdrop-blur-md rounded-[2rem] p-6 md:p-8 border border-white/20 shadow-2xl animate-fade-in-up" style={{animationDelay: '1.5s'}}>
-                                        <h3 className="text-2xl md:text-3xl font-black text-yellow-300 mb-6 text-center border-b border-white/20 pb-4">
-                                            <i className="fa-solid fa-ranking-star mr-3"></i> อันดับอื่นๆ
-                                        </h3>
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                            {others.map((p, idx) => (
-                                                <div key={p.uid || idx} className="flex items-center justify-between bg-black/20 hover:bg-black/30 transition-colors rounded-2xl p-4 px-6 border border-white/5">
-                                                    <div className="flex items-center">
-                                                        <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-xl font-black text-white mr-4 shadow-inner">{idx + 4}</div>
-                                                        <div className="text-xl md:text-2xl font-bold text-white truncate max-w-[150px] md:max-w-[200px]">{p.name}</div>
-                                                    </div>
-                                                    <div className="text-lg md:text-xl font-black text-emerald-300 bg-emerald-900/50 px-4 py-2 rounded-xl border border-emerald-500/30">
-                                                        {p.score} pts
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    );
-                }
-                return <div></div>;
+                    </div>
+                );
             }
 
-            // --- PLAYER VIEW (นักเรียน) ---
-            function PlayerView({ game, userId, goHome, pin, db, appId }) {
-                const me = game.players[userId];
-                const gameTimeLimit = game.timeLimit || 15;
-                if (!me) return <div className="p-8 text-center text-xl font-bold flex flex-col items-center justify-center h-full"><i className="fa-solid fa-spinner fa-spin text-5xl mb-4 text-indigo-500"></i>กำลังโหลดข้อมูลผู้เล่น...</div>;
+            if (game.status === 'leaderboard') {
+                const sortedPlayers = Object.entries(game.players || {}).map(([uid, data]) => ({ uid, ...data })).sort((a, b) => b.score - a.score).slice(0, 5);
 
-                const submitAnswer = async (idx) => {
-                    if(game.status === 'question' && me.lastAnswer === null) {
-                        const qStartTime = game.questionStartTime;
-                        const correctIdx = game.questions[game.currentQuestionIndex].correctIndex;
-                        let newScore = me.score;
-                        
-                        if(idx === correctIdx) {
-                            const timeTaken = (Date.now() - qStartTime) / 1000;
-                            const ratio = Math.max(0, Math.min(1, timeTaken / gameTimeLimit));
-                            newScore += Math.round((1 - (ratio / 2)) * 1000); 
-                            Sounds.correct(); 
-                        } else {
-                            Sounds.wrong();
-                        }
-
-                        const gameRef = doc(db, 'artifacts', appId, 'public', 'data', 'games', pin);
-                        await updateDoc(gameRef, {
-                            [`players.${userId}.lastAnswer`]: idx,
-                            [`players.${userId}.score`]: newScore,
-                            [`players.${userId}.answerTime`]: Date.now()
-                        });
-                    }
+                const nextAction = async () => {
+                    let updates = { status: 'question', currentQuestionIndex: game.currentQuestionIndex + 1, questionStartTime: Date.now() };
+                    Object.keys(game.players).forEach(uid => {
+                        updates[`players.${uid}.lastAnswer`] = null;
+                        updates[`players.${uid}.answerTime`] = null;
+                    });
+                    updateGame(updates);
                 };
 
-                if (game.status === 'lobby') {
-                    return (
-                        <div className="flex-1 bg-gradient-to-b from-emerald-400 to-emerald-600 flex flex-col items-center justify-center p-8 text-white text-center">
-                            <div className="bg-white text-emerald-500 p-8 rounded-full shadow-2xl mb-8 animate-bounce"><i className="fa-solid fa-check text-[5rem]"></i></div>
-                            <h2 className="text-4xl md:text-5xl font-black mb-8 drop-shadow-lg tracking-wide">เข้าห้องสำเร็จ!</h2>
-                            <div className="bg-black/20 px-10 md:px-12 py-8 rounded-[3rem] backdrop-blur-sm mb-12 border border-white/20 w-full max-w-sm">
-                                <p className="text-lg md:text-xl font-bold opacity-80 uppercase tracking-widest mb-2">ชื่อของคุณ</p>
-                                <p className="text-4xl md:text-5xl font-black truncate">{me.name}</p>
-                            </div>
-                            <p className="text-2xl md:text-3xl font-bold animate-pulse flex items-center bg-white/10 px-8 py-4 rounded-full border border-white/30">
-                                <i className="fa-regular fa-clock mr-4 text-3xl"></i> รอคุณครูเริ่มเกม...
-                            </p>
+                return (
+                    <div className="flex-1 flex flex-col bg-gradient-to-br from-indigo-800 to-purple-900 p-6 md:p-10 overflow-y-auto">
+                        <div className="flex flex-col md:flex-row justify-between items-center mb-8 md:mb-12 gap-4">
+                            <h2 className="text-4xl md:text-5xl font-black text-white drop-shadow-lg tracking-wide text-center">กระดานผู้นำ (Top 5)</h2>
+                            <button onClick={nextAction} className="btn-3d px-10 py-4 font-black text-2xl md:text-3xl bg-white text-indigo-700 rounded-3xl hover:bg-slate-50 flex items-center w-full md:w-auto justify-center">
+                                ข้อต่อไป <i className="fa-solid fa-chevron-right ml-3"></i>
+                            </button>
                         </div>
-                    );
-                }
-
-                if (game.status === 'question') {
-                    if (me.lastAnswer !== null) {
-                        return (
-                            <div className="flex-1 bg-slate-100 flex flex-col items-center justify-center p-8 text-center">
-                                <div className="bg-white p-10 rounded-full shadow-xl mb-8"><i className="fa-solid fa-spinner fa-spin text-[5rem] text-slate-300"></i></div>
-                                <h2 className="text-4xl md:text-5xl font-black text-slate-700">ส่งคำตอบแล้ว!</h2>
-                                <p className="text-2xl md:text-3xl font-bold text-slate-500 mt-6">เงยหน้าดูผลลัพธ์ที่จอด้านหน้าห้อง</p>
-                            </div>
-                        );
-                    }
-
-                    return (
-                        <div className="flex-1 bg-slate-100 p-4 flex flex-col pb-8 h-[100dvh]">
-                            <div className="bg-white py-4 md:py-6 px-6 rounded-[2rem] shadow-sm mb-4 text-center font-black text-xl md:text-2xl text-slate-700">
-                                เลือกคำตอบให้ไวที่สุด!
-                            </div>
-                            <div className="flex-1 grid grid-cols-2 grid-rows-2 gap-4">
-                                {COLORS.map((bgClass, idx) => (
-                                    <button key={idx} onClick={() => submitAnswer(idx)} className={`${bgClass} btn-3d rounded-[2rem] md:rounded-[3rem] flex items-center justify-center border-t-2 border-white/20 active:scale-95 transition-transform w-full h-full min-h-[150px]`}>
-                                        <ShapeIcon index={idx} className="w-20 h-20 md:w-32 md:h-32 text-white drop-shadow-lg opacity-90" />
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-                    );
-                }
-
-                if (game.status === 'reveal') {
-                    const currentQ = game.questions[game.currentQuestionIndex];
-                    const isCorrect = me.lastAnswer === currentQ.correctIndex;
-                    const bg = isCorrect ? 'bg-emerald-500' : 'bg-rose-500';
-                    const text = isCorrect ? 'ถูกต้อง!' : 'ผิด!';
-                    const icon = isCorrect ? 'fa-check' : 'fa-xmark';
-
-                    if (me.lastAnswer === null) {
-                        return (
-                            <div className="flex-1 bg-slate-800 flex flex-col items-center justify-center p-8 text-center text-white">
-                                <i className="fa-regular fa-clock text-[8rem] opacity-50 mb-8"></i>
-                                <h2 className="text-5xl md:text-6xl font-black">หมดเวลา!</h2>
-                                <p className="text-2xl md:text-3xl font-bold mt-4 opacity-80">คุณตอบไม่ทัน</p>
-                            </div>
-                        );
-                    }
-
-                    return (
-                        <div className={`flex-1 ${bg} flex flex-col items-center justify-center p-8 text-center text-white transition-colors duration-500`}>
-                            <div className="mb-10 bg-white/20 p-8 rounded-full backdrop-blur-sm border-2 border-white/30 animate-bounce">
-                                <i className={`fa-solid ${icon} text-[6rem] drop-shadow-lg`}></i>
-                            </div>
-                            <h2 className="text-[4rem] md:text-[5rem] font-black drop-shadow-xl mb-12 tracking-wide">{text}</h2>
-                            <div className="bg-black/30 px-10 md:px-12 py-8 rounded-[3rem] backdrop-blur-sm border border-white/10 w-full max-w-xs">
-                                <p className="text-lg md:text-xl uppercase tracking-widest opacity-80 mb-2 font-bold">คะแนนรวมของคุณ</p>
-                                <p className="text-5xl md:text-6xl font-black">{me.score}</p>
-                            </div>
-                        </div>
-                    );
-                }
-
-                if (game.status === 'leaderboard' || game.status === 'podium') {
-                    const sorted = Object.values(game.players || {}).sort((a, b) => b.score - a.score);
-                    const myRank = sorted.findIndex(p => p.name === me.name) + 1; 
-                    const isWinner = myRank === 1 && game.status === 'podium'; // เช็คว่าเป็นที่ 1 ในหน้าสุดท้ายหรือไม่
-
-                    return (
-                        <div className="flex-1 bg-gradient-to-br from-indigo-600 to-purple-800 flex flex-col items-center justify-center p-8 text-center relative overflow-hidden">
-                            <div className="absolute inset-0 bg-[radial-gradient(circle,white_2px,transparent_3px)] bg-[size:40px_40px] opacity-10"></div>
-                            
-                            {/* มงกุฎสำหรับผู้ชนะ */}
-                            {isWinner && (
-                                <div className="absolute top-10 animate-bounce">
-                                    <i className="fa-solid fa-crown text-[6rem] text-yellow-400 drop-shadow-lg"></i>
+                        <div className="flex-1 flex flex-col max-w-5xl w-full mx-auto space-y-4 md:space-y-6">
+                            {sortedPlayers.map((p, index) => (
+                                <div key={p.uid} className="bg-white/95 backdrop-blur-md rounded-3xl flex items-center p-4 md:p-6 shadow-xl animate-fade-in-up border-2 border-white/30" style={{ animationDelay: `${index * 150}ms` }}>
+                                    <div className="font-black w-16 md:w-24 text-center">
+                                        {index === 0 ? <span className="text-5xl md:text-6xl animate-bounce drop-shadow-lg inline-block">👑</span> : <span className="text-4xl md:text-5xl text-slate-400">{index + 1}</span>}
+                                    </div>
+                                    <div className="flex-1 font-black text-3xl md:text-4xl text-slate-800 ml-4 md:ml-6 tracking-wide truncate">{p.name}</div>
+                                    <div className="font-black text-3xl md:text-4xl text-indigo-700 bg-indigo-100/80 px-6 py-3 rounded-2xl border border-indigo-200 shadow-inner">
+                                        {p.score} <span className="text-xl md:text-2xl opacity-70">pts</span>
+                                    </div>
                                 </div>
-                            )}
+                            ))}
+                        </div>
+                    </div>
+                );
+            }
 
-                            <h2 className="text-3xl md:text-4xl font-black text-white mb-10 z-10 drop-shadow-md mt-16">
-                                {game.status === 'podium' 
-                                    ? (isWinner ? '🎉 ยินดีด้วย คุณคือผู้ชนะ! 🎉' : 'จบเกมเรียบร้อย!') 
-                                    : 'สรุปคะแนนของคุณ'}
+            if (game.status === 'podium') {
+                const sorted = Object.values(game.players || {}).sort((a, b) => b.score - a.score);
+                const [first, second, third] = sorted;
+                const others = sorted.slice(3);
+
+                return (
+                    <div className="flex-1 flex flex-col bg-gradient-to-b from-slate-900 via-indigo-900 to-purple-900 overflow-y-auto relative">
+                        <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+                            {[...Array(15)].map((_, i) => (
+                                <div key={i} className="absolute text-4xl animate-float opacity-80" style={{
+                                    left: `${Math.random() * 100}%`, top: `${Math.random() * 100}%`,
+                                    animationDelay: `${Math.random() * 5}s`, animationDuration: `${5 + Math.random() * 5}s`
+                                }}>
+                                    {['🎉', '🎊', '✨', '⭐', '🏆'][Math.floor(Math.random() * 5)]}
+                                </div>
+                            ))}
+                        </div>
+
+                        <div className="w-full flex flex-col md:flex-row justify-between items-center p-6 md:p-10 z-30 gap-4 mt-4">
+                            <h2 className="text-5xl md:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 to-yellow-600 drop-shadow-[0_5px_5px_rgba(0,0,0,1)] tracking-tighter text-center">
+                                🏆 สรุปผลการแข่งขัน! 🏆
                             </h2>
-                            
-                            <div className={`w-full max-w-sm rounded-[3rem] p-10 md:p-12 shadow-2xl relative overflow-hidden z-10 border-b-8 ${isWinner ? 'bg-gradient-to-b from-yellow-50 to-yellow-200 border-yellow-500' : 'bg-white border-indigo-400'}`}>
-                                <div className={`absolute top-0 left-0 w-full h-8 ${isWinner ? 'bg-gradient-to-r from-yellow-400 to-amber-500' : 'bg-gradient-to-r from-yellow-300 to-yellow-500'}`}></div>
-                                <p className={`${isWinner ? 'text-amber-700' : 'text-slate-400'} font-bold mb-2 uppercase tracking-widest text-base md:text-lg mt-4`}>อันดับที่</p>
-                                <p className={`text-[5rem] md:text-[6rem] font-black mb-8 leading-none drop-shadow-sm ${isWinner ? 'text-amber-600' : 'text-indigo-700'}`}>{myRank || '-'}</p>
-                                <div className={`w-full h-1 mb-8 rounded-full ${isWinner ? 'bg-amber-200' : 'bg-slate-200'}`}></div>
-                                <p className={`${isWinner ? 'text-amber-700' : 'text-slate-400'} font-bold mb-2 uppercase tracking-widest text-base md:text-lg`}>คะแนนรวม</p>
-                                <p className={`text-4xl md:text-5xl font-black ${isWinner ? 'text-amber-900' : 'text-slate-800'}`}>{me.score}</p>
+                            <button onClick={endAndSave} className="btn-3d bg-white text-indigo-900 px-8 py-4 rounded-full font-black text-xl flex items-center hover:bg-slate-200 shadow-xl">
+                                <i className="fa-solid fa-house mr-3"></i> จบเกมและกลับหน้าแรก
+                            </button>
+                        </div>
+
+                        <div className="flex flex-col items-center z-20 pb-16 px-4 w-full mt-4 md:mt-10">
+                            <div className="flex flex-col md:flex-row items-center justify-center gap-6 md:gap-8 w-full max-w-5xl relative mt-8">
+                                {second && (
+                                    <div className="w-full md:w-1/3 order-2 md:order-1 bg-gradient-to-br from-slate-200 to-slate-400 rounded-3xl p-6 shadow-2xl flex flex-col items-center transform md:-translate-y-4 border-4 border-slate-100 animate-fade-in-up" style={{animationDelay: '0.5s'}}>
+                                        <div className="w-20 h-20 bg-white/50 rounded-full flex items-center justify-center text-5xl shadow-inner mb-4">🥈</div>
+                                        <h3 className="text-3xl font-black text-slate-800 truncate w-full text-center px-2">{second.name}</h3>
+                                        <div className="mt-4 bg-slate-800/10 px-6 py-2 rounded-full font-bold text-slate-900 text-xl">{second.score} pts</div>
+                                    </div>
+                                )}
+                                {first && (
+                                    <div className="w-full md:w-1/3 order-1 md:order-2 bg-gradient-to-br from-yellow-300 to-yellow-500 rounded-3xl p-8 shadow-[0_0_40px_rgba(250,204,21,0.6)] flex flex-col items-center transform md:-translate-y-12 border-4 border-yellow-100 animate-fade-in-up z-10" style={{animationDelay: '1s'}}>
+                                        <div className="absolute -top-10 text-6xl animate-bounce">👑</div>
+                                        <div className="w-24 h-24 bg-white/50 rounded-full flex items-center justify-center text-6xl shadow-inner mb-4 mt-2">🥇</div>
+                                        <h3 className="text-4xl font-black text-yellow-950 truncate w-full text-center px-2">{first.name}</h3>
+                                        <div className="mt-4 bg-yellow-900/10 px-8 py-3 rounded-full font-black text-yellow-950 text-2xl">{first.score} pts</div>
+                                    </div>
+                                )}
+                                {third && (
+                                    <div className="w-full md:w-1/3 order-3 md:order-3 bg-gradient-to-br from-orange-400 to-orange-600 rounded-3xl p-6 shadow-2xl flex flex-col items-center transform md:-translate-y-0 border-4 border-orange-200 animate-fade-in-up" style={{animationDelay: '0s'}}>
+                                        <div className="w-20 h-20 bg-white/30 rounded-full flex items-center justify-center text-5xl shadow-inner mb-4">🥉</div>
+                                        <h3 className="text-3xl font-black text-orange-950 truncate w-full text-center px-2">{third.name}</h3>
+                                        <div className="mt-4 bg-orange-900/10 px-6 py-2 rounded-full font-bold text-orange-950 text-xl">{third.score} pts</div>
+                                    </div>
+                                )}
                             </div>
 
-                            {game.status === 'podium' && (
-                                <button onClick={goHome} className="mt-12 px-10 py-4 text-xl md:text-2xl bg-white/20 hover:bg-white/30 text-white border-2 border-white/30 rounded-3xl font-black backdrop-blur-sm z-10 transition-colors shadow-lg">
-                                    กลับสู่หน้าแรก
-                                </button>
+                            {others.length > 0 && (
+                                <div className="w-full max-w-4xl mt-12 md:mt-20 bg-white/10 backdrop-blur-md rounded-[2rem] p-6 md:p-8 border border-white/20 shadow-2xl animate-fade-in-up" style={{animationDelay: '1.5s'}}>
+                                    <h3 className="text-2xl md:text-3xl font-black text-yellow-300 mb-6 text-center border-b border-white/20 pb-4">
+                                        <i className="fa-solid fa-ranking-star mr-3"></i> อันดับอื่นๆ
+                                    </h3>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        {others.map((p, idx) => (
+                                            <div key={p.uid || idx} className="flex items-center justify-between bg-black/20 hover:bg-black/30 transition-colors rounded-2xl p-4 px-6 border border-white/5">
+                                                <div className="flex items-center">
+                                                    <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-xl font-black text-white mr-4 shadow-inner">{idx + 4}</div>
+                                                    <div className="text-xl md:text-2xl font-bold text-white truncate max-w-[150px] md:max-w-[200px]">{p.name}</div>
+                                                </div>
+                                                <div className="text-lg md:text-xl font-black text-emerald-300 bg-emerald-900/50 px-4 py-2 rounded-xl border border-emerald-500/30">
+                                                    {p.score} pts
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
                             )}
+                        </div>
+                    </div>
+                );
+            }
+            return <div></div>;
+        }
+
+        // --- PLAYER VIEW (นักเรียน) ---
+        function PlayerView({ game, userId, goHome, pin }) {
+            const me = game.players[userId];
+            const gameTimeLimit = game.timeLimit || 15;
+            if (!me) return <div className="p-8 text-center text-xl font-bold flex flex-col items-center justify-center h-full"><i className="fa-solid fa-spinner fa-spin text-5xl mb-4 text-indigo-500"></i>กำลังโหลดข้อมูลผู้เล่น...</div>;
+
+            const submitAnswer = async (idx) => {
+                if(game.status === 'question' && me.lastAnswer === null) {
+                    const qStartTime = game.questionStartTime;
+                    const correctIdx = game.questions[game.currentQuestionIndex].correctIndex;
+                    let newScore = me.score;
+                    
+                    if(idx === correctIdx) {
+                        const timeTaken = (Date.now() - qStartTime) / 1000;
+                        const ratio = Math.max(0, Math.min(1, timeTaken / gameTimeLimit));
+                        newScore += Math.round((1 - (ratio / 2)) * 1000); 
+                        Sounds.correct(); 
+                    } else {
+                        Sounds.wrong();
+                    }
+
+                    fetchAPI('submitAnswer', { pin, uid: userId, answerIndex: idx, score: newScore });
+                }
+            };
+
+            if (game.status === 'lobby') {
+                return (
+                    <div className="flex-1 bg-gradient-to-b from-emerald-400 to-emerald-600 flex flex-col items-center justify-center p-8 text-white text-center">
+                        <div className="bg-white text-emerald-500 p-8 rounded-full shadow-2xl mb-8 animate-bounce"><i className="fa-solid fa-check text-[5rem]"></i></div>
+                        <h2 className="text-4xl md:text-5xl font-black mb-8 drop-shadow-lg tracking-wide">เข้าห้องสำเร็จ!</h2>
+                        <div className="bg-black/20 px-10 md:px-12 py-8 rounded-[3rem] backdrop-blur-sm mb-12 border border-white/20 w-full max-w-sm">
+                            <p className="text-lg md:text-xl font-bold opacity-80 uppercase tracking-widest mb-2">ชื่อของคุณ</p>
+                            <p className="text-4xl md:text-5xl font-black truncate">{me.name}</p>
+                        </div>
+                        <p className="text-2xl md:text-3xl font-bold animate-pulse flex items-center bg-white/10 px-8 py-4 rounded-full border border-white/30">
+                            <i className="fa-regular fa-clock mr-4 text-3xl"></i> รอคุณครูเริ่มเกม...
+                        </p>
+                    </div>
+                );
+            }
+
+            if (game.status === 'question') {
+                if (me.lastAnswer !== null) {
+                    return (
+                        <div className="flex-1 bg-slate-100 flex flex-col items-center justify-center p-8 text-center">
+                            <div className="bg-white p-10 rounded-full shadow-xl mb-8"><i className="fa-solid fa-spinner fa-spin text-[5rem] text-slate-300"></i></div>
+                            <h2 className="text-4xl md:text-5xl font-black text-slate-700">ส่งคำตอบแล้ว!</h2>
+                            <p className="text-2xl md:text-3xl font-bold text-slate-500 mt-6">เงยหน้าดูผลลัพธ์ที่จอด้านหน้าห้อง</p>
                         </div>
                     );
                 }
-                return <div className="p-8">รอระบบ...</div>;
+
+                return (
+                    <div className="flex-1 bg-slate-100 p-4 flex flex-col pb-8 h-[100dvh]">
+                        <div className="bg-white py-4 md:py-6 px-6 rounded-[2rem] shadow-sm mb-4 text-center font-black text-xl md:text-2xl text-slate-700">
+                            เลือกคำตอบให้ไวที่สุด!
+                        </div>
+                        <div className="flex-1 grid grid-cols-2 grid-rows-2 gap-4">
+                            {COLORS.map((bgClass, idx) => (
+                                <button key={idx} onClick={() => submitAnswer(idx)} className={`${bgClass} btn-3d rounded-[2rem] md:rounded-[3rem] flex items-center justify-center border-t-2 border-white/20 active:scale-95 transition-transform w-full h-full min-h-[150px]`}>
+                                    <ShapeIcon index={idx} className="w-20 h-20 md:w-32 md:h-32 text-white drop-shadow-lg opacity-90" />
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                );
             }
 
-            const root = ReactDOM.createRoot(document.getElementById('root'));
-            root.render(<App />);
-        };
+            if (game.status === 'reveal') {
+                const currentQ = game.questions[game.currentQuestionIndex];
+                const isCorrect = me.lastAnswer === currentQ.correctIndex;
+                const bg = isCorrect ? 'bg-emerald-500' : 'bg-rose-500';
+                const text = isCorrect ? 'ถูกต้อง!' : 'ผิด!';
+                const icon = isCorrect ? 'fa-check' : 'fa-xmark';
 
-        if (window.FirebaseApi) renderApp();
-        else window.addEventListener('firebase-ready', renderApp);
+                if (me.lastAnswer === null) {
+                    return (
+                        <div className="flex-1 bg-slate-800 flex flex-col items-center justify-center p-8 text-center text-white">
+                            <i className="fa-regular fa-clock text-[8rem] opacity-50 mb-8"></i>
+                            <h2 className="text-5xl md:text-6xl font-black">หมดเวลา!</h2>
+                            <p className="text-2xl md:text-3xl font-bold mt-4 opacity-80">คุณตอบไม่ทัน</p>
+                        </div>
+                    );
+                }
+
+                return (
+                    <div className={`flex-1 ${bg} flex flex-col items-center justify-center p-8 text-center text-white transition-colors duration-500`}>
+                        <div className="mb-10 bg-white/20 p-8 rounded-full backdrop-blur-sm border-2 border-white/30 animate-bounce">
+                            <i className={`fa-solid ${icon} text-[6rem] drop-shadow-lg`}></i>
+                        </div>
+                        <h2 className="text-[4rem] md:text-[5rem] font-black drop-shadow-xl mb-12 tracking-wide">{text}</h2>
+                        <div className="bg-black/30 px-10 md:px-12 py-8 rounded-[3rem] backdrop-blur-sm border border-white/10 w-full max-w-xs">
+                            <p className="text-lg md:text-xl uppercase tracking-widest opacity-80 mb-2 font-bold">คะแนนรวมของคุณ</p>
+                            <p className="text-5xl md:text-6xl font-black">{me.score}</p>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (game.status === 'leaderboard' || game.status === 'podium') {
+                const sorted = Object.values(game.players || {}).sort((a, b) => b.score - a.score);
+                const myRank = sorted.findIndex(p => p.name === me.name) + 1; 
+                const isWinner = myRank === 1 && game.status === 'podium';
+
+                return (
+                    <div className="flex-1 bg-gradient-to-br from-indigo-600 to-purple-800 flex flex-col items-center justify-center p-8 text-center relative overflow-hidden">
+                        <div className="absolute inset-0 bg-[radial-gradient(circle,white_2px,transparent_3px)] bg-[size:40px_40px] opacity-10"></div>
+                        
+                        {isWinner && (
+                            <div className="absolute top-10 animate-bounce">
+                                <i className="fa-solid fa-crown text-[6rem] text-yellow-400 drop-shadow-lg"></i>
+                            </div>
+                        )}
+
+                        <h2 className="text-3xl md:text-4xl font-black text-white mb-10 z-10 drop-shadow-md mt-16">
+                            {game.status === 'podium' 
+                                ? (isWinner ? '🎉 ยินดีด้วย คุณคือผู้ชนะ! 🎉' : 'จบเกมเรียบร้อย!') 
+                                : 'สรุปคะแนนของคุณ'}
+                        </h2>
+                        
+                        <div className={`w-full max-w-sm rounded-[3rem] p-10 md:p-12 shadow-2xl relative overflow-hidden z-10 border-b-8 ${isWinner ? 'bg-gradient-to-b from-yellow-50 to-yellow-200 border-yellow-500' : 'bg-white border-indigo-400'}`}>
+                            <div className={`absolute top-0 left-0 w-full h-8 ${isWinner ? 'bg-gradient-to-r from-yellow-400 to-amber-500' : 'bg-gradient-to-r from-yellow-300 to-yellow-500'}`}></div>
+                            <p className={`${isWinner ? 'text-amber-700' : 'text-slate-400'} font-bold mb-2 uppercase tracking-widest text-base md:text-lg mt-4`}>อันดับที่</p>
+                            <p className={`text-[5rem] md:text-[6rem] font-black mb-8 leading-none drop-shadow-sm ${isWinner ? 'text-amber-600' : 'text-indigo-700'}`}>{myRank || '-'}</p>
+                            <div className={`w-full h-1 mb-8 rounded-full ${isWinner ? 'bg-amber-200' : 'bg-slate-200'}`}></div>
+                            <p className={`${isWinner ? 'text-amber-700' : 'text-slate-400'} font-bold mb-2 uppercase tracking-widest text-base md:text-lg`}>คะแนนรวม</p>
+                            <p className={`text-4xl md:text-5xl font-black ${isWinner ? 'text-amber-900' : 'text-slate-800'}`}>{me.score}</p>
+                        </div>
+
+                        {game.status === 'podium' && (
+                            <button onClick={goHome} className="mt-12 px-10 py-4 text-xl md:text-2xl bg-white/20 hover:bg-white/30 text-white border-2 border-white/30 rounded-3xl font-black backdrop-blur-sm z-10 transition-colors shadow-lg">
+                                กลับสู่หน้าแรก
+                            </button>
+                        )}
+                    </div>
+                );
+            }
+            return <div className="p-8">รอระบบ...</div>;
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
     </script>
 </body>
 </html>
