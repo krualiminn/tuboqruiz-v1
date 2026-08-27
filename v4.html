@@ -71,6 +71,25 @@
             const customFirebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
                 // หากนำไปลง Github Pages ให้นำ Firebase Config ของตัวเองมาใส่ตรงนี้
             };
+
+            // ตรวจสอบว่ามีการใส่ Config หรือยัง ป้องกันปัญหาหน้าขาวบน GitHub Pages
+            if (!customFirebaseConfig || Object.keys(customFirebaseConfig).length === 0 || !customFirebaseConfig.apiKey) {
+                const root = ReactDOM.createRoot(document.getElementById('root'));
+                root.render(
+                    <div className="min-h-screen flex items-center justify-center bg-slate-100 p-6 font-['Kanit'] text-center">
+                        <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl max-w-lg border-t-8 border-rose-500 animate-fade-in-up">
+                            <i className="fa-solid fa-triangle-exclamation text-6xl text-rose-500 mb-6"></i>
+                            <h1 className="text-3xl font-black text-slate-800 mb-4">หน้าจอขาว / เชื่อมต่อไม่ได้!</h1>
+                            <p className="text-slate-600 text-lg leading-relaxed mb-6">
+                                เนื่องจากยังไม่ได้ตั้งค่า <b>Firebase Config</b><br/> 
+                                กรุณานำ Config ของโปรเจกต์คุณเองมาวางในไฟล์ `index.html` (ประมาณบรรทัดที่ 57) ก่อนนำไปอัปโหลดขึ้น GitHub ครับ
+                            </p>
+                        </div>
+                    </div>
+                );
+                return;
+            }
+
             const app = initializeApp(customFirebaseConfig);
             const auth = getAuth(app);
             const db = getFirestore(app);
@@ -186,6 +205,7 @@
                 const [timeLimit, setTimeLimit] = useState(15);
                 const [apiKey, setApiKey] = useState(''); // เก็บ API Key
                 const [loading, setLoading] = useState(false);
+                const [showSettings, setShowSettings] = useState(false); // ควบคุมหน้าต่างตั้งค่า (แอบๆ)
 
                 // โหลด API Key ที่เคยบันทึกไว้ในเครื่อง
                 useEffect(() => {
@@ -270,7 +290,12 @@
 
                 const handleCreate = async (e) => {
                     e.preventDefault();
-                    if(!topic || !apiKey) return showError("กรุณาระบุหัวข้อ และใส่ API Key");
+                    if(!topic) return showError("กรุณาระบุหัวข้อครับ");
+                    
+                    if(!apiKey) {
+                        setShowSettings(true);
+                        return showError("กรุณาใส่ Gemini API Key ในการตั้งค่าก่อนสร้างห้องครับ");
+                    }
                     
                     setLoading(true);
                     try {
@@ -306,7 +331,33 @@
                 };
 
                 return (
-                    <div className="flex-1 flex flex-col md:flex-row bg-slate-50">
+                    <div className="flex-1 flex flex-col md:flex-row bg-slate-50 relative">
+                        
+                        {/* ปุ่มตั้งค่ามุมซ้ายบน (ซ่อน API Key ไว้ตรงนี้) */}
+                        <button onClick={() => setShowSettings(true)} className="absolute top-6 left-6 z-30 bg-white/10 hover:bg-white/30 text-white rounded-full w-12 h-12 flex items-center justify-center backdrop-blur-md transition-all shadow-lg border border-white/20 hover:rotate-90">
+                            <i className="fa-solid fa-gear text-xl"></i>
+                        </button>
+
+                        {/* Modal ตั้งค่า API Key */}
+                        {showSettings && (
+                            <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in-up">
+                                <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl relative border-2 border-slate-100">
+                                    <button onClick={() => setShowSettings(false)} className="absolute top-4 right-4 text-slate-400 hover:text-rose-500 transition-colors w-10 h-10 flex items-center justify-center rounded-full bg-slate-100 hover:bg-rose-100">
+                                        <i className="fa-solid fa-xmark text-2xl"></i>
+                                    </button>
+                                    <div className="text-center mb-6 mt-2">
+                                        <div className="w-16 h-16 bg-slate-100 text-slate-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-inner"><i className="fa-solid fa-key text-3xl"></i></div>
+                                        <h3 className="text-2xl font-black text-slate-800">ตั้งค่าระบบ (ลับเฉพาะ)</h3>
+                                        <p className="text-slate-500 mt-2 text-sm">ใส่ Gemini API Key ของคุณที่นี่ (aistudio.google.com)<br/>รหัสจะถูกบันทึกไว้ในเครื่องของคุณเท่านั้น</p>
+                                    </div>
+                                    <div>
+                                        <input type="password" placeholder="AIzaSy..." value={apiKey} onChange={(e)=>setApiKey(e.target.value)} className="w-full text-center text-lg p-4 bg-slate-50 border-2 border-slate-200 rounded-xl focus:border-indigo-500 focus:outline-none mb-4 tracking-widest" />
+                                        <button onClick={() => { localStorage.setItem('gemini_api_key', apiKey.trim()); setShowSettings(false); showError("บันทึก API Key เรียบร้อย"); }} className="w-full btn-3d-slate rounded-xl p-4 text-xl font-black">บันทึกข้อมูล</button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
                         {/* ด้านซ้าย */}
                         <div className="w-full md:w-[60%] bg-gradient-to-br from-indigo-600 via-purple-700 to-fuchsia-800 text-white p-8 md:p-16 flex flex-col justify-center relative overflow-hidden">
                             <div className="absolute top-10 left-10 text-yellow-300 opacity-30 animate-float"><ShapeIcon index={0} className="w-20 h-20" /></div>
@@ -381,10 +432,6 @@
                                         </button>
                                         <div className="text-center mb-4">
                                             <h2 className="text-2xl font-black text-slate-800"><i className="fa-solid fa-wand-magic-sparkles text-blue-500 mr-2"></i>สร้างห้องด้วย AI</h2>
-                                        </div>
-                                        <div>
-                                            <label className="block text-slate-500 font-bold mb-1 text-sm">Gemini API Key (aistudio.google.com)</label>
-                                            <input type="password" placeholder="AIzaSy..." value={apiKey} onChange={(e)=>setApiKey(e.target.value)} className="w-full text-sm p-3 bg-indigo-50 border border-indigo-200 rounded-xl focus:border-indigo-500 focus:outline-none" required />
                                         </div>
                                         <div>
                                             <label className="block text-slate-500 font-bold mb-1 text-sm">หัวข้อเรื่อง / รายวิชา</label>
