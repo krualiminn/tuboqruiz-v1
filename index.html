@@ -1,11 +1,656 @@
 <!DOCTYPE html>
-<html>
-   <head>/
-      <meta name="viewport" content="width=device-width, initial-scale=1">
-      <base target="_top">
-      <title>ระบบสัปดาห์วิทยาศาสตร์ 2569 - สพป.นราธิวาส เขต 2</title>
-   </head>
-   <body>
-      <iframe style="position: absolute;top: 0;left: 0;width: 100%;height: 100%;border: 0;" src="https://script.google.com/macros/s/AKfycbwP0zgrB7_m2loQVps4qAVPnFZIvbTlQOTh0PzpSVpACNOfcIxnjs4t6PINBopJWe6J0w/exec"></iframe>
-   </body>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>เลือกไฟล์</title>
+
+<style>
+*{
+  box-sizing:border-box;
+}
+
+body{
+  margin:0;
+  font-family:Arial,"Noto Sans Thai",sans-serif;
+  background:#f5f8fc;
+  color:#172033;
+}
+
+.container{
+  max-width:1200px;
+  margin:auto;
+  padding:50px 25px;
+}
+
+.header{
+  text-align:center;
+  margin-bottom:35px;
+}
+
+.header h1{
+  margin:0 0 10px;
+  font-size:38px;
+}
+
+.header p{
+  color:#64748b;
+  margin:0;
+}
+
+.search{
+  max-width:600px;
+  margin:30px auto;
+}
+
+.search input{
+  width:100%;
+  padding:16px 20px;
+  border:1px solid #dbe3ee;
+  border-radius:15px;
+  font-size:16px;
+  outline:none;
+}
+
+.search input:focus{
+  border-color:#2563eb;
+}
+
+.status{
+  text-align:center;
+  color:#64748b;
+  margin-bottom:25px;
+}
+
+.grid{
+  display:grid;
+  grid-template-columns:
+    repeat(auto-fit,minmax(240px,1fr));
+  gap:18px;
+}
+
+.card{
+  background:#fff;
+  border:1px solid #e2e8f0;
+  border-radius:20px;
+  padding:22px;
+  cursor:pointer;
+  transition:.2s;
+  text-decoration:none;
+  color:inherit;
+}
+
+.card:hover{
+  transform:translateY(-4px);
+  border-color:#93c5fd;
+  box-shadow:0 15px 35px rgba(37,99,235,.10);
+}
+
+.icon{
+  width:50px;
+  height:50px;
+  border-radius:14px;
+  background:#eff6ff;
+
+  display:flex;
+  align-items:center;
+  justify-content:center;
+
+  font-size:24px;
+  margin-bottom:17px;
+}
+
+.title{
+  font-size:18px;
+  font-weight:bold;
+  margin-bottom:7px;
+  word-break:break-word;
+}
+
+.path{
+  font-size:12px;
+  color:#94a3b8;
+  word-break:break-word;
+}
+
+.open{
+  margin-top:18px;
+  color:#2563eb;
+  font-weight:bold;
+}
+
+.empty{
+  grid-column:1/-1;
+  text-align:center;
+  padding:50px;
+  color:#94a3b8;
+}
+
+@media(max-width:600px){
+
+  .container{
+    padding:30px 18px;
+  }
+
+  .header h1{
+    font-size:28px;
+  }
+
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+  <div class="header">
+
+    <h1>📂 เลือกไฟล์ที่ต้องการเปิด</h1>
+
+    <p>
+      รายการไฟล์ HTML จาก GitHub
+    </p>
+
+  </div>
+
+
+  <div class="search">
+
+    <input
+      id="search"
+      type="text"
+      placeholder="🔎 ค้นหาไฟล์..."
+    >
+
+  </div>
+
+
+  <div
+    class="status"
+    id="status"
+  >
+    กำลังโหลดไฟล์...
+  </div>
+
+
+  <div
+    class="grid"
+    id="grid"
+  ></div>
+
+</div>
+
+
+<script>
+
+let allFiles = [];
+
+
+/* =======================================
+   ตรวจสอบ GitHub Username + Repository
+   อัตโนมัติจาก GitHub Pages URL
+======================================= */
+
+function getGitHubInfo(){
+
+  const host =
+    window.location.hostname;
+
+  const path =
+    window.location.pathname
+      .split("/")
+      .filter(Boolean);
+
+
+  /*
+  ตัวอย่าง
+
+  https://username.github.io/my-project/
+
+  owner = username
+  repo  = my-project
+  */
+
+
+  if(host.endsWith(".github.io")){
+
+    const owner =
+      host.split(".")[0];
+
+
+    let repo;
+
+
+    if(path.length > 0){
+
+      /*
+      Project Pages
+      username.github.io/repository/
+      */
+
+      repo = path[0];
+
+    }else{
+
+      /*
+      User Pages
+      username.github.io
+      */
+
+      repo =
+        owner + ".github.io";
+
+    }
+
+
+    return {
+      owner,
+      repo
+    };
+
+  }
+
+
+  return null;
+
+}
+
+
+
+/* =======================================
+   โหลด Repository
+======================================= */
+
+async function loadRepository(){
+
+  const status =
+    document.getElementById("status");
+
+
+  const info =
+    getGitHubInfo();
+
+
+  if(!info){
+
+    status.innerHTML =
+      "ไม่สามารถตรวจสอบ GitHub Repository ได้";
+
+    return;
+
+  }
+
+
+  try{
+
+    status.innerHTML =
+      "กำลังค้นหาไฟล์ HTML...";
+
+
+    /*
+    อ่านข้อมูล Repository
+    เพื่อหา default branch
+    */
+
+    const repoResponse =
+      await fetch(
+        `https://api.github.com/repos/${info.owner}/${info.repo}`
+      );
+
+
+    if(!repoResponse.ok){
+
+      throw new Error(
+        "ไม่พบ Repository"
+      );
+
+    }
+
+
+    const repoData =
+      await repoResponse.json();
+
+
+    const branch =
+      repoData.default_branch;
+
+
+    /*
+    อ่านไฟล์ทั้งหมดแบบ recursive
+    */
+
+    const treeResponse =
+      await fetch(
+        `https://api.github.com/repos/${info.owner}/${info.repo}/git/trees/${branch}?recursive=1`
+      );
+
+
+    if(!treeResponse.ok){
+
+      throw new Error(
+        "ไม่สามารถอ่านไฟล์ได้"
+      );
+
+    }
+
+
+    const treeData =
+      await treeResponse.json();
+
+
+    /*
+    เลือกเฉพาะไฟล์ HTML
+    */
+
+    allFiles =
+      treeData.tree.filter(item => {
+
+        if(item.type !== "blob"){
+          return false;
+        }
+
+
+        const path =
+          item.path.toLowerCase();
+
+
+        if(!path.endsWith(".html")){
+          return false;
+        }
+
+
+        /*
+        ไม่แสดง index.html
+        */
+
+        if(
+          path === "index.html"
+        ){
+          return false;
+        }
+
+
+        return true;
+
+      });
+
+
+    /*
+    เรียงชื่อไฟล์
+    */
+
+    allFiles.sort(
+      (a,b) =>
+        a.path.localeCompare(
+          b.path,
+          "th"
+        )
+    );
+
+
+    status.innerHTML =
+      `
+      พบไฟล์ HTML
+      <strong>
+      ${allFiles.length}
+      </strong>
+      ไฟล์
+      `;
+
+
+    renderFiles(allFiles);
+
+
+  }
+  catch(error){
+
+    console.error(error);
+
+
+    status.innerHTML =
+      `
+      ❌ โหลดไฟล์ไม่สำเร็จ
+      <br>
+      ${error.message}
+      `;
+
+  }
+
+}
+
+
+
+/* =======================================
+   แสดงรายการ
+======================================= */
+
+function renderFiles(files){
+
+  const grid =
+    document.getElementById("grid");
+
+
+  grid.innerHTML = "";
+
+
+  if(files.length === 0){
+
+    grid.innerHTML =
+      `
+      <div class="empty">
+        ไม่พบไฟล์ HTML
+      </div>
+      `;
+
+    return;
+
+  }
+
+
+  files.forEach(item => {
+
+
+    const card =
+      document.createElement("a");
+
+
+    card.className =
+      "card";
+
+
+    /*
+    สร้าง URL สำหรับเปิดไฟล์
+    */
+
+    const url =
+      createPageURL(
+        item.path
+      );
+
+
+    card.href =
+      url;
+
+
+    /*
+    เปิดหน้าใหม่
+    เปลี่ยนเป็น _self
+    ถ้าต้องการเปิดหน้าเดิม
+    */
+
+    card.target =
+      "_blank";
+
+
+    const filename =
+      item.path
+        .split("/")
+        .pop();
+
+
+    const displayName =
+      filename.replace(
+        /\.html$/i,
+        ""
+      );
+
+
+    card.innerHTML = `
+
+      <div class="icon">
+        🌐
+      </div>
+
+
+      <div class="title">
+        ${escapeHTML(displayName)}
+      </div>
+
+
+      <div class="path">
+        ${escapeHTML(item.path)}
+      </div>
+
+
+      <div class="open">
+        เปิดไฟล์ →
+      </div>
+
+    `;
+
+
+    grid.appendChild(card);
+
+  });
+
+}
+
+
+
+/* =======================================
+   สร้าง GitHub Pages URL
+======================================= */
+
+function createPageURL(filePath){
+
+  const info =
+    getGitHubInfo();
+
+
+  /*
+  Project Pages
+
+  username.github.io/repository/
+  */
+
+  if(
+    window.location.hostname
+      .endsWith(".github.io")
+  ){
+
+    const owner =
+      info.owner;
+
+
+    /*
+    Repository แบบ
+    username.github.io
+    */
+
+    if(
+      info.repo ===
+      owner + ".github.io"
+    ){
+
+      return (
+        window.location.origin +
+        "/" +
+        filePath
+      );
+
+    }
+
+
+    /*
+    Repository ปกติ
+    */
+
+    return (
+      window.location.origin +
+      "/" +
+      info.repo +
+      "/" +
+      filePath
+    );
+
+  }
+
+
+  return filePath;
+
+}
+
+
+
+/* =======================================
+   Search
+======================================= */
+
+document
+  .getElementById("search")
+  .addEventListener(
+    "input",
+    function(){
+
+      const keyword =
+        this.value
+          .toLowerCase()
+          .trim();
+
+
+      const result =
+        allFiles.filter(item =>
+
+          item.path
+            .toLowerCase()
+            .includes(keyword)
+
+        );
+
+
+      renderFiles(result);
+
+    }
+  );
+
+
+
+/* =======================================
+   ป้องกัน HTML Injection
+======================================= */
+
+function escapeHTML(text){
+
+  return text
+    .replaceAll("&","&amp;")
+    .replaceAll("<","&lt;")
+    .replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;")
+    .replaceAll("'","&#039;");
+
+}
+
+
+
+/* =======================================
+   START
+======================================= */
+
+loadRepository();
+
+</script>
+
+</body>
 </html>
